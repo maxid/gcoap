@@ -1,6 +1,6 @@
 module github.com/maxid/gcoap
 
-go 1.24
+go 1.27
 
 require github.com/maxid/gnety v0.0.0-20261029133617-ec58da305ac5
 

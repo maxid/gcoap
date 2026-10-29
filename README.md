@@ -3,8 +3,8 @@
 A minimal **CoAP server state machine** for Go, built on the
 [gnety](https://github.com/maxid/gnety) network framework.
 
-> Status: **development snapshot (untagged)** — request routing and
-> confirmable/non-confirmable responses. Observe/block-wise/DTLS are roadmap.
+> Status: **development snapshot (untagged)** — request routing,
+> confirmable/non-confirmable responses and Observe/Notify. Block-wise/DTLS are roadmap.
 > No tags are published until a stable release; use commit pseudo-versions.
 
 ## Features
@@ -14,6 +14,7 @@ A minimal **CoAP server state machine** for Go, built on the
 - Request routing by method + URI path
 - CON → ACK piggyback response, NON → NON response
 - Query parsing and URI-path options
+- Observe/Notify (RFC 7641 minimal): register, notify, cancel
 - 4.04 for unknown routes
 
 ## Example

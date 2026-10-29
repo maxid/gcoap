@@ -47,16 +47,27 @@ type Server struct {
 	routes   map[string]Handler
 	prefixes map[string]Handler
 	nextID   atomic.Uint32
+
+	obsMu     sync.Mutex
+	observers map[string][]*observer
+	sessions  map[string]*gnety.Session
 }
 
 // New creates a CoAP server.
 func New(cfg Config) (*Server, error) {
-	s := &Server{routes: make(map[string]Handler), prefixes: make(map[string]Handler)}
+	s := &Server{
+		routes: make(map[string]Handler), prefixes: make(map[string]Handler),
+		observers: make(map[string][]*observer), sessions: make(map[string]*gnety.Session),
+	}
 	srv, err := gnety.New(gnety.Config{
 		Network:       "udp",
 		Addr:          cfg.Addr,
 		DatagramCodec: datagramCodec{},
-		Handler:       gnety.HandlerFuncs{Message: s.onMessage},
+		Handler: gnety.HandlerFuncs{
+			Message: s.onMessage,
+			Open:    func(sess *gnety.Session) { s.trackSession(sess) },
+			Close:   func(sess *gnety.Session, _ error) { s.untrackSession(sess) },
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -131,7 +142,15 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 		return
 	}
 	path, query := parsePath(m)
+	obs, hasObs := observeValue(m)
 	h := s.match(m.Code, path)
+	if h != nil && m.Code == coap.CodeGET && hasObs {
+		if obs == 1 {
+			s.cancelObserver(sess, m.Token, path)
+		} else {
+			s.addObserver(sess, m.Token, path)
+		}
+	}
 	resp := Response{Code: coap.CodeNotFound}
 	if h != nil {
 		resp = h(context.Background(), Request{
@@ -153,6 +172,12 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 	if m.Type == coap.NonConfirmable {
 		out.Type = coap.NonConfirmable
 		out.MessageID = uint16(s.nextID.Add(1))
+	}
+	if m.Code == coap.CodeGET && hasObs && obs == 0 && h != nil {
+		out.Options = append(out.Options, coap.Option{
+			Number: coap.OptionObserve,
+			Value:  []byte{0, 0, 0},
+		})
 	}
 	_ = sess.Send(out)
 }

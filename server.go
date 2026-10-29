@@ -66,7 +66,7 @@ func New(cfg Config) (*Server, error) {
 	srv, err := gnety.New(gnety.Config{
 		Network:       "udp",
 		Addr:          cfg.Addr,
-		DatagramCodec: datagramCodec{},
+		DatagramCodec: MessageCodec{},
 		Handler: gnety.HandlerFuncs{
 			Message: s.onMessage,
 			Open:    func(sess *gnety.Session) { s.trackSession(sess) },
@@ -268,15 +268,4 @@ func parsePath(m coap.Message) (path string, query url.Values) {
 		}
 	}
 	return path, query
-}
-
-type datagramCodec struct{}
-
-func (datagramCodec) Decode(data []byte) (any, error) { return coap.Parse(data) }
-func (datagramCodec) Encode(msg any) ([]byte, error) {
-	m, ok := msg.(coap.Message)
-	if !ok {
-		return nil, fmt.Errorf("gcoap: expected coap.Message, got %T", msg)
-	}
-	return m.Marshal()
 }

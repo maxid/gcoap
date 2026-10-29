@@ -7,5 +7,5 @@
 - [x] Observe / notifications (minimal)
 - [x] Block-wise transfer (Block1/Block2)
 - [ ] DTLS
-- [ ] Client state machine
+- [x] Client state machine (minimal: Dial/Do, retry, Block2)
 - [ ] Retransmission/duplicate detection

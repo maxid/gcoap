@@ -17,6 +17,7 @@ A minimal **CoAP server state machine** for Go, built on the
 - Query parsing and URI-path options
 - Observe/Notify (RFC 7641 minimal): register, notify, cancel
 - Block-wise transfer (RFC 7959): Block2 reads and Block1 writes
+- Client state machine: `Dial` + `Do` (CON, timeout retry, automatic Block2 assembly)
 - 4.04 for unknown routes
 
 ## Example

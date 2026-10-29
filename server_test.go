@@ -96,3 +96,23 @@ func TestNonConfirmable(t *testing.T) {
 		t.Fatalf("response = %v/%v", resp.Type, resp.Code)
 	}
 }
+
+func TestPrefixRoute(t *testing.T) {
+	srv, err := New(Config{Addr: "127.0.0.1:0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.HandlePrefix(coap.CodePOST, "/rd", func(_ context.Context, req Request) Response {
+		return Response{Code: coap.CodeCreated, Payload: []byte(req.Path)}
+	})
+	if err := srv.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Stop(context.Background())
+	req := coap.Message{Type: coap.Confirmable, Code: coap.CodePOST, MessageID: 1,
+		Options: []coap.Option{{Number: coap.OptionURIPath, Value: []byte("rd")}, {Number: coap.OptionURIPath, Value: []byte("abc")}}}
+	resp := exchange(t, srv, req)
+	if resp.Code != coap.CodeCreated || string(resp.Payload) != "/rd/abc" {
+		t.Fatalf("resp = %v %q", resp.Code, resp.Payload)
+	}
+}

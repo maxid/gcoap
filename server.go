@@ -42,15 +42,16 @@ type Config struct {
 
 // Server is a minimal CoAP server.
 type Server struct {
-	srv    *gnety.Server
-	mu     sync.RWMutex
-	routes map[string]Handler
-	nextID atomic.Uint32
+	srv      *gnety.Server
+	mu       sync.RWMutex
+	routes   map[string]Handler
+	prefixes map[string]Handler
+	nextID   atomic.Uint32
 }
 
 // New creates a CoAP server.
 func New(cfg Config) (*Server, error) {
-	s := &Server{routes: make(map[string]Handler)}
+	s := &Server{routes: make(map[string]Handler), prefixes: make(map[string]Handler)}
 	srv, err := gnety.New(gnety.Config{
 		Network:       "udp",
 		Addr:          cfg.Addr,
@@ -74,6 +75,47 @@ func (s *Server) Handle(method coap.Code, path string, h Handler) {
 	s.mu.Unlock()
 }
 
+// HandlePrefix registers a handler for a path prefix (longest match wins).
+func (s *Server) HandlePrefix(method coap.Code, prefix string, h Handler) {
+	if prefix == "" {
+		prefix = "/"
+	}
+	s.mu.Lock()
+	s.prefixes[routeKey(method, prefix)] = h
+	s.mu.Unlock()
+}
+
+func (s *Server) match(method coap.Code, path string) Handler {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if h := s.routes[routeKey(method, path)]; h != nil {
+		return h
+	}
+	bestKey, bestLen := "", -1
+	for key := range s.prefixes {
+		kMethod, kPath := splitRouteKey(key)
+		if kMethod != method {
+			continue
+		}
+		if path == kPath || strings.HasPrefix(path, strings.TrimSuffix(kPath, "/")+"/") {
+			if len(kPath) > bestLen {
+				bestKey, bestLen = key, len(kPath)
+			}
+		}
+	}
+	if bestKey == "" {
+		return nil
+	}
+	return s.prefixes[bestKey]
+}
+
+func splitRouteKey(key string) (coap.Code, string) {
+	var code int
+	var path string
+	_, _ = fmt.Sscanf(key, "%d %s", &code, &path)
+	return coap.Code(code), path
+}
+
 // Start starts the UDP listener.
 func (s *Server) Start(ctx context.Context) error { return s.srv.Start(ctx) }
 
@@ -89,9 +131,7 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 		return
 	}
 	path, query := parsePath(m)
-	s.mu.RLock()
-	h := s.routes[routeKey(m.Code, path)]
-	s.mu.RUnlock()
+	h := s.match(m.Code, path)
 	resp := Response{Code: coap.CodeNotFound}
 	if h != nil {
 		resp = h(context.Background(), Request{

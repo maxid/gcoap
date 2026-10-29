@@ -5,7 +5,7 @@
 - [x] CON/ACK and NON responses
 - [x] Query/URI-path parsing
 - [x] Observe / notifications (minimal)
-- [ ] Block-wise transfer
+- [x] Block-wise transfer (Block1/Block2)
 - [ ] DTLS
 - [ ] Client state machine
 - [ ] Retransmission/duplicate detection

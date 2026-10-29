@@ -51,6 +51,9 @@ type Server struct {
 	obsMu     sync.Mutex
 	observers map[string][]*observer
 	sessions  map[string]*gnety.Session
+
+	blockMu sync.Mutex
+	uploads map[string]*upload
 }
 
 // New creates a CoAP server.
@@ -58,6 +61,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		routes: make(map[string]Handler), prefixes: make(map[string]Handler),
 		observers: make(map[string][]*observer), sessions: make(map[string]*gnety.Session),
+		uploads: make(map[string]*upload),
 	}
 	srv, err := gnety.New(gnety.Config{
 		Network:       "udp",
@@ -142,6 +146,28 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 		return
 	}
 	path, query := parsePath(m)
+	var finalBlock1 *block
+	if m.Code == coap.CodePUT {
+		if b, ok, err := parseBlock(m, coap.OptionBlock1); err != nil {
+			s.sendResponse(sess, m, Response{Code: coap.CodeBadRequest})
+			return
+		} else if ok {
+			full, final, err := s.processBlock1(sess, m, b)
+			if err != nil {
+				s.sendResponse(sess, m, Response{Code: coap.CodeBadRequest})
+				return
+			}
+			if b.More {
+				s.sendResponse(sess, m, Response{
+					Code:    coap.CodeContinue,
+					Options: []coap.Option{{Number: coap.OptionBlock1, Value: encodeBlock(block{Num: b.Num, More: true, SZX: b.SZX})}},
+				})
+				return
+			}
+			m.Payload = full
+			finalBlock1 = &final
+		}
+	}
 	obs, hasObs := observeValue(m)
 	h := s.match(m.Code, path)
 	if h != nil && m.Code == coap.CodeGET && hasObs {
@@ -161,6 +187,26 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 	if resp.Code == 0 {
 		resp.Code = coap.CodeContent
 	}
+	if m.Code == coap.CodeGET {
+		if b, ok, err := parseBlock(m, coap.OptionBlock2); err != nil || ok {
+			if err != nil {
+				resp.Code = coap.CodeBadRequest
+				resp.Payload = nil
+			} else {
+				chunk, outBlock, err := sliceBlock(resp.Payload, b)
+				if err != nil {
+					resp.Code = coap.CodeBadRequest
+					resp.Payload = nil
+				} else {
+					resp.Payload = chunk
+					resp.Options = append(resp.Options, coap.Option{Number: coap.OptionBlock2, Value: encodeBlock(outBlock)})
+				}
+			}
+		}
+	}
+	if finalBlock1 != nil {
+		resp.Options = append(resp.Options, coap.Option{Number: coap.OptionBlock1, Value: encodeBlock(*finalBlock1)})
+	}
 	out := coap.Message{
 		Type:      coap.Acknowledgement,
 		Code:      resp.Code,
@@ -178,6 +224,21 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 			Number: coap.OptionObserve,
 			Value:  []byte{0, 0, 0},
 		})
+	}
+	_ = sess.Send(out)
+}
+
+func (s *Server) sendResponse(sess *gnety.Session, req coap.Message, resp Response) {
+	if resp.Code == 0 {
+		resp.Code = coap.CodeContent
+	}
+	out := coap.Message{
+		Type: coap.Acknowledgement, Code: resp.Code, MessageID: req.MessageID,
+		Token: append([]byte(nil), req.Token...), Options: resp.Options, Payload: resp.Payload,
+	}
+	if req.Type == coap.NonConfirmable {
+		out.Type = coap.NonConfirmable
+		out.MessageID = uint16(s.nextID.Add(1))
 	}
 	_ = sess.Send(out)
 }

@@ -6,6 +6,6 @@
 - [x] Query/URI-path parsing
 - [x] Observe / notifications (minimal)
 - [x] Block-wise transfer (Block1/Block2)
-- [ ] DTLS
+- [x] DTLS transport (server/client)
 - [x] Client state machine (minimal: Dial/Do, retry, Block2)
 - [ ] Retransmission/duplicate detection

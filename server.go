@@ -37,7 +37,9 @@ type Response struct {
 
 // Config configures a CoAP server.
 type Config struct {
-	Addr string
+	Addr    string
+	Network string // "udp" (default) or "dtls"
+	TLS     gnety.TLSConfig
 }
 
 // Server is a minimal CoAP server.
@@ -63,9 +65,14 @@ func New(cfg Config) (*Server, error) {
 		observers: make(map[string][]*observer), sessions: make(map[string]*gnety.Session),
 		uploads: make(map[string]*upload),
 	}
+	network := cfg.Network
+	if network == "" {
+		network = "udp"
+	}
 	srv, err := gnety.New(gnety.Config{
-		Network:       "udp",
+		Network:       network,
 		Addr:          cfg.Addr,
+		TLS:           cfg.TLS,
 		DatagramCodec: MessageCodec{},
 		Handler: gnety.HandlerFuncs{
 			Message: s.onMessage,

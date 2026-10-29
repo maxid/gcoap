@@ -2,6 +2,14 @@ module github.com/maxid/gcoap
 
 go 1.24
 
-require github.com/maxid/gnety v0.0.0-20261029132055-6e89e406dcf5
+require github.com/maxid/gnety v0.0.0-20261029133617-ec58da305ac5
 
-require github.com/coder/websocket v1.8.15 // indirect
+require (
+	github.com/coder/websocket v1.8.15 // indirect
+	github.com/pion/dtls/v2 v2.2.12 // indirect
+	github.com/pion/logging v0.2.2 // indirect
+	github.com/pion/transport/v2 v2.2.4 // indirect
+	golang.org/x/crypto v0.18.0 // indirect
+	golang.org/x/net v0.20.0 // indirect
+	golang.org/x/sys v0.16.0 // indirect
+)

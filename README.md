@@ -5,7 +5,7 @@ A minimal **CoAP server state machine** for Go, built on the
 
 > Status: **development snapshot (untagged)** — request routing,
 > confirmable/non-confirmable responses, Observe/Notify and block-wise transfer.
-> DTLS and a client state machine are roadmap.
+> DTLS is available; advanced client features (observe, Block1 assembly) are roadmap.
 > No tags are published until a stable release; use commit pseudo-versions.
 
 ## Features
@@ -18,6 +18,7 @@ A minimal **CoAP server state machine** for Go, built on the
 - Observe/Notify (RFC 7641 minimal): register, notify, cancel
 - Block-wise transfer (RFC 7959): Block2 reads and Block1 writes
 - Client state machine: `Dial` + `Do` (CON, timeout retry, automatic Block2 assembly)
+- DTLS transport (server/client) via gnety
 - 4.04 for unknown routes
 
 ## Example

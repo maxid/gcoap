@@ -36,10 +36,26 @@ type Client struct {
 	mu     sync.Mutex
 }
 
-// Dial connects to a CoAP server.
+// ClientConfig configures a CoAP client.
+type ClientConfig struct {
+	Addr    string
+	Network string // "udp" (default) or "dtls"
+	TLS     gnety.TLSConfig
+}
+
+// Dial connects to a CoAP server over UDP.
 func Dial(ctx context.Context, addr string) (*Client, error) {
+	return DialConfig(ctx, ClientConfig{Addr: addr})
+}
+
+// DialConfig connects to a CoAP server over UDP or DTLS.
+func DialConfig(ctx context.Context, cfg ClientConfig) (*Client, error) {
+	network := cfg.Network
+	if network == "" {
+		network = "udp"
+	}
 	conn, err := gnety.Dial(ctx, gnety.ClientConfig{
-		Network: "udp", Addr: addr, DatagramCodec: MessageCodec{},
+		Network: network, Addr: cfg.Addr, TLS: cfg.TLS, DatagramCodec: MessageCodec{},
 	})
 	if err != nil {
 		return nil, err

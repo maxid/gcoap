@@ -15,12 +15,18 @@ A minimal **CoAP server state machine** for Go, built on the
 - Request routing by method + URI path
 - CON → ACK piggyback response, NON → NON response
 - Query parsing and URI-path options
-- Observe/Notify (RFC 7641 minimal): register, notify, cancel
+- Observe/Notify (RFC 7641): register, notify, cancel, plus opt-in confirmable
+  notifications with retransmission, ACK/RST handling and a bounded pending
+  notification per observation
 - Block-wise transfer (RFC 7959): Block2 reads and Block1 writes
 - Client state machine: `Dial` + `Do` (CON retransmission, automatic Block2 assembly)
+- Separate responses (RFC 7252 section 5.2): a handler that exceeds `ACK_TIMEOUT`
+  gets an empty ACK, then its response is sent as a new CON message and
+  retransmitted; `Request.RespondLater` lets a handler choose this explicitly
 - RFC 7252 exchange layer: message-id deduplication per peer (bounded cache,
-  exchange lifetime), exponential-backoff retransmission with `ACK_RANDOM_FACTOR`
-  jitter and `MAX_RETRANSMIT`, cancellable handler contexts
+  exchange lifetime, empty-ACK replay for pending separate responses),
+  exponential-backoff retransmission with `ACK_RANDOM_FACTOR` jitter and
+  `MAX_RETRANSMIT`, cancellable handler contexts
 - DTLS transport (server/client) via gnety
 - 4.04 for unknown routes
 
@@ -36,8 +42,7 @@ _ = srv.Start(context.Background())
 
 ## Roadmap
 
-- separate responses and confirmable (retransmitted) notifications
-- bounded Observe/Block state and advanced client Observe/Block1 support
+- bounded Block upload state and advanced client Observe/Block1 support
 - independent interoperability and weak-network testing
 
 ## License

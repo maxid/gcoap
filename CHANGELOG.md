@@ -28,3 +28,17 @@
   `gnety/codec/coap` accessors; gcoap keeps the exchange, observe-registry and
   block-transfer state plus its compact Block and fixed three-byte Observe wire
   forms.
+- Confirmable notifications (C2): `Config.ConfirmableNotifications` sends an
+  Observe notification as CON and retransmits it with the RFC 7252 schedule
+  until ACK/RST or the retransmission limit. RST and the final timeout remove
+  the observation (RFC 7641 section 4.5); an ACK releases at most one coalesced
+  newer notification, so each observation holds one in-flight plus one pending
+  message regardless of `Notify` frequency. Defaults stay NON.
+- Separate responses (C3): a confirmable handler that takes longer than
+  `ACK_TIMEOUT` gets an empty ACK, then its response is delivered as a new CON
+  message with its own message id and retransmission schedule. The dedup cache
+  replays that empty ACK to duplicate requests (never as the final answer) and
+  keeps the handler single-run. `Request.RespondLater` exposes the same path
+  explicitly; `Config.SeparateResponses` moves handlers off the transport read
+  loop so duplicates can be answered while they run. The client now ACKs a
+  separate CON response so the server stops retransmitting.

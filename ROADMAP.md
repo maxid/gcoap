@@ -9,3 +9,6 @@
 - [x] DTLS transport (server/client)
 - [x] Client state machine (minimal: Dial/Do, retry, Block2)
 - [x] RFC 7252 retransmission, message-id deduplication and exchange lifetime
+- [x] Confirmable Observe notifications with ACK/RST handling and a bounded
+      per-observation queue
+- [x] Separate responses (empty ACK then a retransmitted CON response)

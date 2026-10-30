@@ -44,9 +44,11 @@ type exchangeParams struct {
 	exchangeLifetime time.Duration
 
 	// rand returns the jitter source in [0,1) and now is the clock the exchange
-	// lifetime is measured on; tests replace both.
-	rand func() float64
-	now  func() time.Time
+	// lifetime is measured on; after supplies the retransmission timer. Tests
+	// replace all three so an exchange can run on a manual clock.
+	rand  func() float64
+	now   func() time.Time
+	after func(time.Duration) <-chan time.Time
 }
 
 // defaultExchangeParams returns the RFC 7252 defaults.
@@ -58,6 +60,7 @@ func defaultExchangeParams() exchangeParams {
 		exchangeLifetime: DefaultExchangeLifetime,
 		rand:             rand.Float64,
 		now:              time.Now,
+		after:            time.After,
 	}
 }
 
@@ -195,11 +198,14 @@ func peerIdentity(sess *gnety.Session) string {
 }
 
 // dedupEntry is one remembered confirmable exchange. datagram is nil while the
-// handler for the exchange is still running.
+// handler for the exchange is still running. ack holds the empty ACK sent when
+// the response becomes a separate exchange; it is replayed to duplicates but
+// is never a final response.
 type dedupEntry struct {
 	key      exchangeKey
 	first    time.Time
 	datagram []byte
+	ack      []byte
 }
 
 // dedupCache remembers the responses of inbound confirmable exchanges so a
@@ -245,13 +251,32 @@ func (c *dedupCache) begin(key exchangeKey) (datagram []byte, hit bool) {
 	defer c.mu.Unlock()
 	c.sweepLocked(now)
 	if el, ok := c.entries[key]; ok {
-		return el.Value.(*dedupEntry).datagram, true
+		entry := el.Value.(*dedupEntry)
+		if len(entry.datagram) > 0 {
+			return entry.datagram, true
+		}
+		if len(entry.ack) > 0 {
+			return entry.ack, true
+		}
+		return nil, true
 	}
 	c.entries[key] = c.order.PushBack(&dedupEntry{key: key, first: now})
 	for c.order.Len() > c.max {
 		c.removeLocked(c.order.Front())
 	}
 	return nil, false
+}
+
+// acknowledge records the empty ACK of an exchange whose response will follow
+// as a separate message. A duplicate request replays the identical ACK while
+// the handler is still working. It deliberately does not fill datagram, so an
+// empty ACK can never be mistaken for the final answer.
+func (c *dedupCache) acknowledge(key exchangeKey, datagram []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if el, ok := c.entries[key]; ok {
+		el.Value.(*dedupEntry).ack = append([]byte(nil), datagram...)
+	}
 }
 
 // complete stores the response datagram of an exchange so a retransmission is

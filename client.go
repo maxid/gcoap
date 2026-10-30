@@ -180,6 +180,16 @@ func (c *Client) exchange(ctx context.Context, req coap.Message) (coap.Message, 
 				return coap.Message{}, err
 			}
 			if kind == awaitResponse {
+				if resp.Type == coap.Confirmable {
+					// A separate response is a new confirmable message, not the
+					// acknowledgement of our request; acknowledge it so the server
+					// stops retransmitting.
+					ack := coap.Message{
+						Type: coap.Acknowledgement, Code: coap.CodeEmpty,
+						MessageID: resp.MessageID,
+					}
+					_ = c.conn.Send(ack)
+				}
 				return resp, nil
 			}
 			if kind == awaitReset {

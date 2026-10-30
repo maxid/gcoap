@@ -8,7 +8,8 @@
 // bounded cache without running the handler again, outbound confirmable
 // messages retransmit with exponential backoff inside the exchange lifetime, and
 // handler contexts are cancelled when their exchange completes or the server
-// stops.
+// stops. The same outbound exchange correlates ACKs/RSTs for confirmable Observe
+// notifications (RFC 7641) and separate responses (RFC 7252 section 5.2).
 package gcoap
 
 import (
@@ -35,6 +36,29 @@ type Request struct {
 	Query   url.Values
 	Payload []byte
 	Session *gnety.Session
+
+	exchange *requestExchange // set by the server; nil for a caller-built Request
+}
+
+// RespondLater tells the server that this request is answered after the
+// handler returns and returns the function that sends the response. For a
+// confirmable request the server sends an empty ACK immediately; the returned
+// response is a separate CON message with its own message id, retransmitted
+// until the client ACKs or resets it (RFC 7252 section 5.2).
+//
+// The handler may either return a zero Response after starting its own worker
+// and call the responder from that goroutine, or return the final Response
+// itself (the server then sends it separately). The handler context stays alive
+// until the response is sent, its session closes or the server stops. A Request
+// with no exchange
+// (one built by a caller rather than passed to a handler) returns a responder
+// that always reports ErrResponseAlreadySent. RespondLater is optional; handlers
+// that return normally keep the existing piggyback behavior.
+func (r Request) RespondLater() Responder {
+	if r.exchange == nil {
+		return func(Response) error { return ErrResponseAlreadySent }
+	}
+	return r.exchange.deferResponse()
 }
 
 // Response is a CoAP response.
@@ -66,6 +90,21 @@ type Config struct {
 	// MaxExchanges bounds the inbound message-id deduplication cache: zero keeps
 	// the default of 1024.
 	MaxExchanges int
+	// ConfirmableNotifications sends Observe notifications as confirmable
+	// messages that are retransmitted until the client ACKs or resets them.
+	// The default is false, which keeps the existing NON notification behavior.
+	ConfirmableNotifications bool
+	// SeparateResponses runs each confirmable request handler on its own
+	// goroutine, so a slow handler no longer blocks the transport read loop and a
+	// duplicate request can be answered while it runs. Separate responses are
+	// automatic: whenever a confirmable handler has not answered within
+	// AckTimeout the server sends an empty ACK and later delivers the response
+	// as a new confirmable message (RFC 7252 section 5.2). The default is false,
+	// which keeps handlers on the read loop but still uses the separate response
+	// mechanism for a slow handler. Handlers must be safe for concurrent calls
+	// when this is enabled. A handler can also request a separate response
+	// explicitly with Request.RespondLater.
+	SeparateResponses bool
 }
 
 // Server is a minimal CoAP server.
@@ -78,6 +117,12 @@ type Server struct {
 
 	params exchangeParams
 	dedup  *dedupCache
+
+	confirmableNotifications bool
+	separateResponses        bool
+
+	outMu    sync.Mutex
+	outbound map[outboundKey]*outboundExchange
 
 	baseCtx context.Context
 	cancel  context.CancelFunc
@@ -114,6 +159,10 @@ func New(cfg Config) (*Server, error) {
 		baseCtx:  baseCtx,
 		cancel:   cancel,
 		handlers: make(map[string]map[uint64]context.CancelFunc),
+
+		confirmableNotifications: cfg.ConfirmableNotifications,
+		separateResponses:        cfg.SeparateResponses,
+		outbound:                 make(map[outboundKey]*outboundExchange),
 	}
 	network := cfg.Network
 	if network == "" {
@@ -217,13 +266,22 @@ func (s *Server) Stop(ctx context.Context) error {
 // Addr returns the listen address.
 func (s *Server) Addr() string { return s.srv.Addr() }
 
-// onMessage serves one request datagram. A confirmable request is answered from
-// the deduplication cache when the peer retransmits it, so the handler runs once
-// per exchange (RFC 7252 section 4.2); a non-confirmable request is never
-// deduplicated because it is not acknowledged.
+// onMessage serves one request datagram. An ACK or RST is routed to the
+// outbound exchange that owns its message id and never reaches the request
+// path. A confirmable request is answered from the deduplication cache when the
+// peer retransmits it, so the handler runs once per exchange (RFC 7252 section
+// 4.2); a non-confirmable request is never deduplicated because it is not
+// acknowledged.
 func (s *Server) onMessage(sess *gnety.Session, msg any) {
 	m, ok := msg.(coap.Message)
-	if !ok || m.Code < coap.CodeGET || m.Code > coap.CodeDELETE || sess == nil {
+	if !ok || sess == nil {
+		return
+	}
+	if m.Type == coap.Acknowledgement || m.Type == coap.Reset {
+		s.dispatchControl(sess, m)
+		return
+	}
+	if m.Code < coap.CodeGET || m.Code > coap.CodeDELETE {
 		return
 	}
 	var key exchangeKey
@@ -237,104 +295,22 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 			return
 		}
 	}
-	out, answered := s.respond(sess, m)
-	if !answered {
-		if confirmable {
-			s.dedup.forget(key)
-		}
+	st := &requestExchange{srv: s, sess: sess, msg: m, key: key, confirmable: confirmable}
+	if confirmable && s.separateResponses {
+		// Detach the handler so the read loop can receive the client's ACK for
+		// the separate response (and duplicate requests) while it runs.
+		go s.answerRequest(st)
 		return
 	}
-	raw, err := out.Marshal()
-	if err == nil {
-		err = sess.Send(raw)
-	}
-	if err != nil {
-		if confirmable {
-			s.dedup.forget(key)
-		}
-		return
-	}
-	if confirmable {
-		s.dedup.complete(key, raw)
-	}
+	s.answerRequest(st)
 }
 
-// respond runs the handler for one request and builds the response to send.
-// answered is false when the request produced no immediate response (a handler
-// that will answer with a separate response); the caller must then not cache
-// anything for the exchange.
-func (s *Server) respond(sess *gnety.Session, m coap.Message) (coap.Message, bool) {
-	path, query := parsePath(m)
-	var finalBlock1 *coap.Option
-	if m.Code == coap.CodePUT {
-		if b, ok, err := requestBlock(m, coap.OptionBlock1); err != nil {
-			return responseMessage(s.nextID.Add, m, Response{Code: coap.CodeBadRequest}), true
-		} else if ok {
-			full, final, err := s.processBlock1(sess, m, b)
-			if err != nil {
-				return responseMessage(s.nextID.Add, m, Response{Code: coap.CodeBadRequest}), true
-			}
-			// 2.31 acknowledges the block just accepted; on the final block the same
-			// option rides on the handler's response below.
-			option, err := blockOption(coap.OptionBlock1, final)
-			if err != nil {
-				return responseMessage(s.nextID.Add, m, Response{Code: coap.CodeBadRequest}), true
-			}
-			if b.More {
-				return responseMessage(s.nextID.Add, m, Response{Code: coap.CodeContinue, Options: []coap.Option{option}}), true
-			}
-			m.Payload = full
-			finalBlock1 = &option
-		}
-	}
-	obs, hasObs := m.Observe()
-	h := s.match(m.Code, path)
-	if h != nil && m.Code == coap.CodeGET && hasObs {
-		if obs == coap.ObserveDeregister {
-			s.cancelObserver(sess, m.Token, path)
-		} else {
-			s.addObserver(sess, m.Token, path)
-		}
-	}
-	resp := Response{Code: coap.CodeNotFound}
-	if h != nil {
-		ctx, done := s.handlerContext(sess)
-		resp = h(ctx, Request{
-			Message: m, Path: path, Query: query,
-			Payload: append([]byte(nil), m.Payload...), Session: sess,
-		})
-		done()
-	}
-	if resp.Code == 0 {
-		resp.Code = coap.CodeContent
-	}
-	if m.Code == coap.CodeGET {
-		if b, ok, err := requestBlock(m, coap.OptionBlock2); ok {
-			var chunk []byte
-			var option coap.Option
-			if err == nil {
-				var outBlock coap.Block
-				chunk, outBlock, err = sliceBlock(resp.Payload, b)
-				if err == nil {
-					option, err = blockOption(coap.OptionBlock2, outBlock)
-				}
-			}
-			if err != nil {
-				resp.Code = coap.CodeBadRequest
-				resp.Payload = nil
-			} else {
-				resp.Payload = chunk
-				resp.Options = append(resp.Options, option)
-			}
-		}
-	}
-	if finalBlock1 != nil {
-		resp.Options = append(resp.Options, *finalBlock1)
-	}
-	if m.Code == coap.CodeGET && hasObs && obs == coap.ObserveRegister && h != nil {
-		resp.Options = append(resp.Options, observeOption(coap.ObserveRegister))
-	}
-	return responseMessage(s.nextID.Add, m, resp), true
+// baseContext returns the server lifetime context outbound exchanges derive
+// from.
+func (s *Server) baseContext() context.Context {
+	s.hMu.Lock()
+	defer s.hMu.Unlock()
+	return s.baseCtx
 }
 
 // handlerContext returns the context one handler invocation runs with. It is

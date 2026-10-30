@@ -33,11 +33,9 @@ _ = srv.Start(context.Background())
 
 ## Roadmap
 
-- observe / notifications
-- block-wise transfer
-- DTLS transport
-- client state machine
-- retransmission/duplicate handling
+- complete retransmission/duplicate handling and separate responses
+- bounded Observe/Block state and advanced client Observe/Block1 support
+- independent interoperability and weak-network testing
 
 ## License
 

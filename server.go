@@ -1,7 +1,7 @@
 // Package gcoap is a minimal CoAP server state machine built on gnety.
 //
-// Wire encoding is provided by gnety/codec/coap; transport is gnety UDP.
-// Observe/block-wise/DTLS are not implemented yet.
+// Wire encoding is provided by gnety/codec/coap; transport is gnety UDP/DTLS.
+// Basic Observe and block-wise transfers are implemented.
 package gcoap
 
 import (

@@ -1,10 +1,8 @@
-github.com/coder/websocket v1.8.15 h1:6B2JPeOGlpff2Uz6vOEH1Vzpi0iUz20A+lPVhPHtNUA=
-github.com/coder/websocket v1.8.15/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/maxid/gnety v0.0.0-20261029133617-ec58da305ac5 h1:RpllzY8f8xs4OaoDi5uiMukYsXf2Ffk9UWVdmfqI28c=
-github.com/maxid/gnety v0.0.0-20261029133617-ec58da305ac5/go.mod h1:P7sRmNNlRQj2Wb8XguS6Qh7Yr9oKwW1q65RTY/xqpnI=
+github.com/maxid/gnety v0.0.0-20261030094618-a0202c4592ea h1:Asi8rJuEcPyVZX7CVszhg/PaxlazPUbmLeLNuCVY/hM=
+github.com/maxid/gnety v0.0.0-20261030094618-a0202c4592ea/go.mod h1:uVjoynffjJX5EZV0eS8cpUJ8X2Nhzmnq0Ywqq0ia2es=
 github.com/pion/dtls/v2 v2.2.12 h1:KP7H5/c1EiVAAKUmXyCzPiQe5+bCJrpOeKg/L05dunk=
 github.com/pion/dtls/v2 v2.2.12/go.mod h1:d9SYc9fch0CqK90mRk1dC7AkzzpwJj6u2GU3u+9pqFE=
 github.com/pion/logging v0.2.2 h1:M9+AIj/+pxNsDfAT64+MAVgJO0rsyLnoJKCqf//DoeY=

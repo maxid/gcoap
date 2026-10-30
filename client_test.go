@@ -55,7 +55,7 @@ func TestClientBlock2(t *testing.T) {
 	defer cancel()
 	resp, err := cli.Do(ctx, ClientRequest{
 		Code: coap.CodeGET, Path: "/big",
-		Options: []coap.Option{{Number: coap.OptionBlock2, Value: encodeBlock(block{SZX: 0})}},
+		Options: []coap.Option{block2Option(t, 0)},
 	})
 	if err != nil {
 		t.Fatal(err)

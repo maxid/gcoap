@@ -10,25 +10,17 @@ type observer struct {
 	sessionID string
 	token     string
 	path      string
-	seq       uint32
+	seq       coap.Observe
 }
 
-// observeValue extracts the Observe option. ok=false means no observe option.
-func observeValue(m coap.Message) (value int, ok bool) {
-	for _, opt := range m.Options {
-		if opt.Number != coap.OptionObserve {
-			continue
-		}
-		if len(opt.Value) == 0 {
-			return 0, true
-		}
-		v := 0
-		for _, b := range opt.Value {
-			v = v<<8 | int(b)
-		}
-		return v, true
+// observeOption returns the Observe option carrying value. gcoap writes the
+// fixed three-byte form: RFC 7641 bounds the value to three bytes, and keeping
+// the length fixed makes the encoding independent of the value.
+func observeOption(value coap.Observe) coap.Option {
+	return coap.Option{
+		Number: coap.OptionObserve,
+		Value:  []byte{byte(value >> 16), byte(value >> 8), byte(value)},
 	}
-	return 0, false
 }
 
 func (s *Server) addObserver(sess *gnety.Session, token []byte, path string) {
@@ -111,11 +103,7 @@ func (s *Server) Notify(path string, resp Response) int {
 	targets := make([]target, 0, len(list))
 	for _, o := range list {
 		opts := append([]coap.Option(nil), resp.Options...)
-		seq := o.seq
-		opts = append(opts, coap.Option{
-			Number: coap.OptionObserve,
-			Value:  []byte{byte(seq >> 16), byte(seq >> 8), byte(seq)},
-		})
+		opts = append(opts, observeOption(o.seq))
 		targets = append(targets, target{o: o, msg: coap.Message{
 			Type: coap.NonConfirmable, Code: resp.Code,
 			MessageID: uint16(s.nextID.Add(1)),

@@ -153,9 +153,9 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 		return
 	}
 	path, query := parsePath(m)
-	var finalBlock1 *block
+	var finalBlock1 *coap.Option
 	if m.Code == coap.CodePUT {
-		if b, ok, err := parseBlock(m, coap.OptionBlock1); err != nil {
+		if b, ok, err := requestBlock(m, coap.OptionBlock1); err != nil {
 			s.sendResponse(sess, m, Response{Code: coap.CodeBadRequest})
 			return
 		} else if ok {
@@ -164,21 +164,25 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 				s.sendResponse(sess, m, Response{Code: coap.CodeBadRequest})
 				return
 			}
+			// 2.31 acknowledges the block just accepted; on the final block the same
+			// option rides on the handler's response below.
+			option, err := blockOption(coap.OptionBlock1, final)
+			if err != nil {
+				s.sendResponse(sess, m, Response{Code: coap.CodeBadRequest})
+				return
+			}
 			if b.More {
-				s.sendResponse(sess, m, Response{
-					Code:    coap.CodeContinue,
-					Options: []coap.Option{{Number: coap.OptionBlock1, Value: encodeBlock(block{Num: b.Num, More: true, SZX: b.SZX})}},
-				})
+				s.sendResponse(sess, m, Response{Code: coap.CodeContinue, Options: []coap.Option{option}})
 				return
 			}
 			m.Payload = full
-			finalBlock1 = &final
+			finalBlock1 = &option
 		}
 	}
-	obs, hasObs := observeValue(m)
+	obs, hasObs := m.Observe()
 	h := s.match(m.Code, path)
 	if h != nil && m.Code == coap.CodeGET && hasObs {
-		if obs == 1 {
+		if obs == coap.ObserveDeregister {
 			s.cancelObserver(sess, m.Token, path)
 		} else {
 			s.addObserver(sess, m.Token, path)
@@ -195,24 +199,27 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 		resp.Code = coap.CodeContent
 	}
 	if m.Code == coap.CodeGET {
-		if b, ok, err := parseBlock(m, coap.OptionBlock2); err != nil || ok {
+		if b, ok, err := requestBlock(m, coap.OptionBlock2); ok {
+			var chunk []byte
+			var option coap.Option
+			if err == nil {
+				var outBlock coap.Block
+				chunk, outBlock, err = sliceBlock(resp.Payload, b)
+				if err == nil {
+					option, err = blockOption(coap.OptionBlock2, outBlock)
+				}
+			}
 			if err != nil {
 				resp.Code = coap.CodeBadRequest
 				resp.Payload = nil
 			} else {
-				chunk, outBlock, err := sliceBlock(resp.Payload, b)
-				if err != nil {
-					resp.Code = coap.CodeBadRequest
-					resp.Payload = nil
-				} else {
-					resp.Payload = chunk
-					resp.Options = append(resp.Options, coap.Option{Number: coap.OptionBlock2, Value: encodeBlock(outBlock)})
-				}
+				resp.Payload = chunk
+				resp.Options = append(resp.Options, option)
 			}
 		}
 	}
 	if finalBlock1 != nil {
-		resp.Options = append(resp.Options, coap.Option{Number: coap.OptionBlock1, Value: encodeBlock(*finalBlock1)})
+		resp.Options = append(resp.Options, *finalBlock1)
 	}
 	out := coap.Message{
 		Type:      coap.Acknowledgement,
@@ -226,11 +233,8 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 		out.Type = coap.NonConfirmable
 		out.MessageID = uint16(s.nextID.Add(1))
 	}
-	if m.Code == coap.CodeGET && hasObs && obs == 0 && h != nil {
-		out.Options = append(out.Options, coap.Option{
-			Number: coap.OptionObserve,
-			Value:  []byte{0, 0, 0},
-		})
+	if m.Code == coap.CodeGET && hasObs && obs == coap.ObserveRegister && h != nil {
+		out.Options = append(out.Options, observeOption(coap.ObserveRegister))
 	}
 	_ = sess.Send(out)
 }
@@ -255,22 +259,13 @@ func routeKey(method coap.Code, path string) string {
 }
 
 func parsePath(m coap.Message) (path string, query url.Values) {
-	var segs, qs []string
-	for _, opt := range m.Options {
-		switch opt.Number {
-		case coap.OptionURIPath:
-			segs = append(segs, string(opt.Value))
-		case coap.OptionURIQuery:
-			qs = append(qs, string(opt.Value))
-		}
-	}
 	path = "/"
-	if len(segs) > 0 {
-		path = "/" + strings.Join(segs, "/")
+	if segments := m.URIPath(); len(segments) > 0 {
+		path = "/" + strings.Join(segments, "/")
 	}
 	query = url.Values{}
-	if len(qs) > 0 {
-		if parsed, err := url.ParseQuery(strings.Join(qs, "&")); err == nil {
+	if args := m.URIQuery(); len(args) > 0 {
+		if parsed, err := url.ParseQuery(strings.Join(args, "&")); err == nil {
 			query = parsed
 		}
 	}

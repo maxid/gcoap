@@ -10,3 +10,7 @@
 - Block-wise transfer: Block2 response slicing and Block1 upload assembly.
 - Client (`Dial`/`Do`) on gnety client connector: CON retry, token matching, Block2 assembly.
 - DTLS server/client configuration via gnety.
+- Options, blocks and observe values are decoded and encoded through the typed
+  `gnety/codec/coap` accessors; gcoap keeps the exchange, observe-registry and
+  block-transfer state plus its compact Block and fixed three-byte Observe wire
+  forms.

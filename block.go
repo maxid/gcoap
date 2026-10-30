@@ -7,46 +7,40 @@ import (
 	"github.com/maxid/gnety/codec/coap"
 )
 
-// block describes a CoAP block option (RFC 7959).
-type block struct {
-	Num  uint32
-	More bool
-	SZX  uint8
+// requestBlock decodes the Block1 or Block2 option of a message. ok is false
+// when the message carries no such option; a value that does not decode as a
+// block option comes back with ok set and the error.
+func requestBlock(m coap.Message, number uint16) (block coap.Block, ok bool, err error) {
+	value, ok := m.OptionValue(number)
+	if !ok {
+		return coap.Block{}, false, nil
+	}
+	block, err = coap.DecodeBlock(value)
+	return block, true, err
 }
 
-func blockSize(szx uint8) (int, error) {
-	if szx > 6 {
-		return 0, fmt.Errorf("gcoap: invalid block szx %d", szx)
+// blockValue returns one block option value in the compact form gcoap emits:
+// RFC 7959 carries the value as an unsigned integer of 0 to 3 bytes, codec/coap
+// encodes the fixed three-byte form, so the leading zero bytes are trimmed here.
+// One byte is always kept.
+func blockValue(b coap.Block) ([]byte, error) {
+	raw, err := b.Encode()
+	if err != nil {
+		return nil, err
 	}
-	return 16 << szx, nil
+	for len(raw) > 1 && raw[0] == 0 {
+		raw = raw[1:]
+	}
+	return raw, nil
 }
 
-func parseBlock(m coap.Message, number uint16) (block, bool, error) {
-	for _, opt := range m.Options {
-		if opt.Number != number {
-			continue
-		}
-		var raw uint32
-		for _, b := range opt.Value {
-			raw = raw<<8 | uint32(b)
-		}
-		return block{Num: raw >> 4, More: raw&0x08 != 0, SZX: uint8(raw & 0x07)}, true, nil
+// blockOption returns b as the option with the given number.
+func blockOption(number uint16, b coap.Block) (coap.Option, error) {
+	value, err := blockValue(b)
+	if err != nil {
+		return coap.Option{}, err
 	}
-	return block{}, false, nil
-}
-
-func encodeBlock(b block) []byte {
-	raw := b.Num<<4 | uint32(b.SZX)
-	if b.More {
-		raw |= 0x08
-	}
-	if raw <= 0xFF {
-		return []byte{byte(raw)}
-	}
-	if raw <= 0xFFFF {
-		return []byte{byte(raw >> 8), byte(raw)}
-	}
-	return []byte{byte(raw >> 16), byte(raw >> 8), byte(raw)}
+	return coap.Option{Number: number, Value: value}, nil
 }
 
 type upload struct {
@@ -55,7 +49,7 @@ type upload struct {
 	token     string
 	data      []byte
 	nextNum   uint32
-	szx       uint8
+	sizeExp   uint8
 }
 
 func uploadKey(sess *gnety.Session, token []byte) string {
@@ -68,13 +62,13 @@ func uploadKey(sess *gnety.Session, token []byte) string {
 
 // processBlock1 handles one Block1 upload chunk. When complete it returns the
 // full payload and the final block option.
-func (s *Server) processBlock1(sess *gnety.Session, m coap.Message, b block) ([]byte, block, error) {
-	size, err := blockSize(b.SZX)
-	if err != nil {
-		return nil, block{}, err
+func (s *Server) processBlock1(sess *gnety.Session, m coap.Message, b coap.Block) ([]byte, coap.Block, error) {
+	size := b.Size()
+	if size == 0 {
+		return nil, coap.Block{}, fmt.Errorf("gcoap: invalid block szx %d", b.SizeExp)
 	}
 	if len(m.Payload) > size {
-		return nil, block{}, fmt.Errorf("gcoap: block payload too large")
+		return nil, coap.Block{}, fmt.Errorf("gcoap: block payload too large")
 	}
 	key := uploadKey(sess, m.Token)
 	s.blockMu.Lock()
@@ -84,12 +78,12 @@ func (s *Server) processBlock1(sess *gnety.Session, m coap.Message, b block) ([]
 	}
 	up := s.uploads[key]
 	if b.Num == 0 {
-		up = &upload{sessionID: uploadKey(sess, nil), path: "", token: string(m.Token), nextNum: 0, szx: b.SZX}
+		up = &upload{sessionID: uploadKey(sess, nil), path: "", token: string(m.Token), nextNum: 0, sizeExp: b.SizeExp}
 		s.uploads[key] = up
 	}
-	if up == nil || up.szx != b.SZX || b.Num != up.nextNum || uint32(len(up.data)) != b.Num*uint32(size) {
+	if up == nil || up.sizeExp != b.SizeExp || b.Num != up.nextNum || uint32(len(up.data)) != b.Num*uint32(size) {
 		delete(s.uploads, key)
-		return nil, block{}, fmt.Errorf("gcoap: invalid block sequence")
+		return nil, coap.Block{}, fmt.Errorf("gcoap: invalid block sequence")
 	}
 	up.data = append(up.data, m.Payload...)
 	up.nextNum++
@@ -99,7 +93,7 @@ func (s *Server) processBlock1(sess *gnety.Session, m coap.Message, b block) ([]
 	}
 	data := up.data
 	delete(s.uploads, key)
-	final := block{Num: b.Num, More: false, SZX: b.SZX}
+	final := coap.Block{Num: b.Num, More: false, SizeExp: b.SizeExp}
 	return data, final, nil
 }
 
@@ -113,19 +107,19 @@ func (s *Server) cleanupUploads(sessionID string) {
 	s.blockMu.Unlock()
 }
 
-func sliceBlock(payload []byte, b block) ([]byte, block, error) {
-	size, err := blockSize(b.SZX)
-	if err != nil {
-		return nil, block{}, err
+func sliceBlock(payload []byte, b coap.Block) ([]byte, coap.Block, error) {
+	size := b.Size()
+	if size == 0 {
+		return nil, coap.Block{}, fmt.Errorf("gcoap: invalid block szx %d", b.SizeExp)
 	}
 	start := int(b.Num) * size
 	if start >= len(payload) {
-		return nil, block{}, fmt.Errorf("gcoap: block offset out of range")
+		return nil, coap.Block{}, fmt.Errorf("gcoap: block offset out of range")
 	}
 	end := start + size
 	more := end < len(payload)
 	if end > len(payload) {
 		end = len(payload)
 	}
-	return payload[start:end], block{Num: b.Num, More: more, SZX: b.SZX}, nil
+	return payload[start:end], coap.Block{Num: b.Num, More: more, SizeExp: b.SizeExp}, nil
 }

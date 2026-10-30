@@ -1,6 +1,7 @@
 package gcoap
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"testing"
@@ -45,6 +46,16 @@ func roundTrip(t *testing.T, conn *net.UDPConn, req coap.Message) coap.Message {
 	return resp
 }
 
+// block2Option builds a Block2 request option asking for one 16-byte block.
+func block2Option(t *testing.T, num uint32) coap.Option {
+	t.Helper()
+	value, err := coap.Block{Num: num, SizeExp: 0}.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return coap.Option{Number: coap.OptionBlock2, Value: value}
+}
+
 func TestBlock2Read(t *testing.T) {
 	srv, err := New(Config{Addr: "127.0.0.1:0"})
 	if err != nil {
@@ -70,16 +81,16 @@ func TestBlock2Read(t *testing.T) {
 			Type: coap.Confirmable, Code: coap.CodeGET, MessageID: uint16(100 + num),
 			Token: []byte{1}, Options: []coap.Option{
 				{Number: coap.OptionURIPath, Value: []byte("big")},
-				{Number: coap.OptionBlock2, Value: encodeBlock(block{Num: num, SZX: 0})},
+				block2Option(t, num),
 			},
 		}
 		resp := roundTrip(t, conn, req)
 		if resp.Code != coap.CodeContent {
 			t.Fatalf("code = %v", resp.Code)
 		}
-		b, ok, err := parseBlock(resp, coap.OptionBlock2)
-		if err != nil || !ok {
-			t.Fatalf("block2 = %+v ok=%v err=%v", b, ok, err)
+		b, ok := resp.Block2()
+		if !ok {
+			t.Fatalf("block2 missing from %+v", resp.Options)
 		}
 		if b.Num != num {
 			t.Fatalf("num = %d want %d", b.Num, num)
@@ -114,11 +125,11 @@ func TestBlock1Write(t *testing.T) {
 
 	first := coap.Message{
 		Type: coap.Confirmable, Code: coap.CodePUT, MessageID: 1, Token: []byte{9},
-		Options: []coap.Option{
-			{Number: coap.OptionURIPath, Value: []byte("upload")},
-			{Number: coap.OptionBlock1, Value: encodeBlock(block{Num: 0, More: true, SZX: 0})},
-		},
+		Options: []coap.Option{{Number: coap.OptionURIPath, Value: []byte("upload")}},
 		Payload: payload[:16],
+	}
+	if err := first.SetBlock1(coap.Block{Num: 0, More: true}); err != nil {
+		t.Fatal(err)
 	}
 	resp := roundTrip(t, conn, first)
 	if resp.Code != coap.CodeContinue {
@@ -126,11 +137,11 @@ func TestBlock1Write(t *testing.T) {
 	}
 	second := coap.Message{
 		Type: coap.Confirmable, Code: coap.CodePUT, MessageID: 2, Token: []byte{9},
-		Options: []coap.Option{
-			{Number: coap.OptionURIPath, Value: []byte("upload")},
-			{Number: coap.OptionBlock1, Value: encodeBlock(block{Num: 1, More: false, SZX: 0})},
-		},
+		Options: []coap.Option{{Number: coap.OptionURIPath, Value: []byte("upload")}},
 		Payload: payload[16:],
+	}
+	if err := second.SetBlock1(coap.Block{Num: 1}); err != nil {
+		t.Fatal(err)
 	}
 	resp = roundTrip(t, conn, second)
 	if resp.Code != coap.CodeChanged {
@@ -143,5 +154,37 @@ func TestBlock1Write(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("handler not called")
+	}
+}
+
+// TestBlockOptionCompactForm pins the wire form gcoap emits for block options:
+// RFC 7959 allows the value as a uint of 0 to 3 bytes and gcoap keeps the
+// shortest form, so a small block number stays on one byte.
+func TestBlockOptionCompactForm(t *testing.T) {
+	cases := []struct {
+		block coap.Block
+		want  []byte
+	}{
+		{coap.Block{}, []byte{0x00}},
+		{coap.Block{More: true}, []byte{0x08}},
+		{coap.Block{Num: 15, SizeExp: 6}, []byte{0xf6}},
+		{coap.Block{Num: 16}, []byte{0x01, 0x00}},
+		{coap.Block{Num: 1 << 12, More: true}, []byte{0x01, 0x00, 0x08}},
+		{coap.Block{Num: 0x0fffff, SizeExp: 6, More: true}, []byte{0xff, 0xff, 0xfe}},
+	}
+	for _, c := range cases {
+		got, err := blockValue(c.block)
+		if err != nil {
+			t.Fatalf("blockValue(%+v): %v", c.block, err)
+		}
+		if !bytes.Equal(got, c.want) {
+			t.Fatalf("blockValue(%+v) = %x, want %x", c.block, got, c.want)
+		}
+	}
+	if _, err := blockValue(coap.Block{SizeExp: 7}); err == nil {
+		t.Fatal("blockValue accepted the reserved size exponent 7")
+	}
+	if _, err := blockValue(coap.Block{Num: 1 << 20}); err == nil {
+		t.Fatal("blockValue accepted a block number above 20 bits")
 	}
 }

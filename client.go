@@ -83,12 +83,12 @@ func (c *Client) Do(ctx context.Context, req ClientRequest) (ClientResponse, err
 	}
 	full := append([]byte(nil), resp.Payload...)
 	for {
-		b, ok, err := parseBlock(coap.Message{Options: resp.Options}, coap.OptionBlock2)
-		if err != nil || !ok || !b.More {
+		b, ok := resp.Block2()
+		if !ok || !b.More {
 			break
 		}
-		next := block{Num: b.Num + 1, SZX: b.SZX}
-		msg, err = c.buildMessage(req, token, []coap.Option{{Number: coap.OptionBlock2, Value: encodeBlock(next)}})
+		next := coap.Block{Num: b.Num + 1, SizeExp: b.SizeExp}
+		msg, err = c.buildMessage(req, token, &next)
 		if err != nil {
 			return ClientResponse{}, err
 		}
@@ -103,37 +103,46 @@ func (c *Client) Do(ctx context.Context, req ClientRequest) (ClientResponse, err
 	return ClientResponse{Code: resp.Code, Options: resp.Options, Payload: resp.Payload}, nil
 }
 
-func (c *Client) buildMessage(req ClientRequest, token []byte, extra []coap.Option) (coap.Message, error) {
-	skipBlock2 := false
-	for _, o := range extra {
-		if o.Number == coap.OptionBlock2 {
-			skipBlock2 = true
-		}
-	}
+// buildMessage assembles one request datagram. block2, when set, replaces any
+// Block2 option the request carries so a block-wise read can ask for one block.
+func (c *Client) buildMessage(req ClientRequest, token []byte, block2 *coap.Block) (coap.Message, error) {
 	m := coap.Message{
 		Type:      coap.Confirmable,
 		Code:      req.Code,
 		MessageID: uint16(c.nextID.Add(1)),
 		Token:     append([]byte(nil), token...),
+		Options:   append([]coap.Option(nil), req.Options...),
 		Payload:   req.Payload,
 	}
-	for _, o := range req.Options {
-		if skipBlock2 && o.Number == coap.OptionBlock2 {
-			continue
-		}
-		m.Options = append(m.Options, o)
-	}
+	segments := m.URIPath()
 	if req.Path != "" && req.Path != "/" {
-		for _, seg := range strings.Split(strings.Trim(req.Path, "/"), "/") {
-			m.Options = append(m.Options, coap.Option{Number: coap.OptionURIPath, Value: []byte(seg)})
+		segments = append(segments, strings.Split(strings.Trim(req.Path, "/"), "/")...)
+	}
+	if len(segments) > 0 {
+		if err := m.SetURIPath(segments...); err != nil {
+			return coap.Message{}, err
 		}
 	}
+	query := m.URIQuery()
 	for key, values := range req.Query {
 		for _, v := range values {
-			m.Options = append(m.Options, coap.Option{Number: coap.OptionURIQuery, Value: []byte(key + "=" + v)})
+			query = append(query, key+"="+v)
 		}
 	}
-	m.Options = append(m.Options, extra...)
+	if len(query) > 0 {
+		if err := m.SetURIQuery(query...); err != nil {
+			return coap.Message{}, err
+		}
+	}
+	if block2 != nil {
+		value, err := blockValue(*block2)
+		if err != nil {
+			return coap.Message{}, err
+		}
+		if err := m.SetOption(coap.OptionBlock2, value); err != nil {
+			return coap.Message{}, err
+		}
+	}
 	return m, nil
 }
 

@@ -89,7 +89,10 @@ func (s *Server) planRequest(st *requestExchange) requestPlan {
 	m := st.msg
 	path, query := parsePath(m)
 	plan := requestPlan{path: path, query: query}
-	if m.Code == coap.CodePUT {
+	// Block1 reassembly applies to the methods that carry a request body: PUT
+	// and POST (RFC 7959 is method agnostic, and the client uploads the body of
+	// either block-wise).
+	if m.Code == coap.CodePUT || m.Code == coap.CodePOST {
 		if b, ok, err := requestBlock(m, coap.OptionBlock1); err != nil {
 			plan.early = &Response{Code: coap.CodeBadRequest}
 			return plan

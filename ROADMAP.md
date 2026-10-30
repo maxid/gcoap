@@ -12,3 +12,5 @@
 - [x] Confirmable Observe notifications with ACK/RST handling and a bounded
       per-observation queue
 - [x] Separate responses (empty ACK then a retransmitted CON response)
+- [x] Client Block1 upload (size negotiation, Size1, early server response)
+- [x] Client Observe (sequence tracking, NON/CON notifications, ACK, cancel)

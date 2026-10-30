@@ -13,10 +13,16 @@ type MessageCodec struct{}
 func (MessageCodec) Decode(data []byte) (any, error) { return coap.Parse(data) }
 
 // Encode marshals one CoAP message.
+//
+// A []byte is already encoded and is written as is, which lets the server replay
+// a cached acknowledgement byte for byte.
 func (MessageCodec) Encode(msg any) ([]byte, error) {
-	m, ok := msg.(coap.Message)
-	if !ok {
+	switch m := msg.(type) {
+	case coap.Message:
+		return m.Marshal()
+	case []byte:
+		return m, nil
+	default:
 		return nil, fmt.Errorf("gcoap: expected coap.Message, got %T", msg)
 	}
-	return m.Marshal()
 }

@@ -8,4 +8,4 @@
 - [x] Block-wise transfer (Block1/Block2)
 - [x] DTLS transport (server/client)
 - [x] Client state machine (minimal: Dial/Do, retry, Block2)
-- [ ] Retransmission/duplicate detection
+- [x] RFC 7252 retransmission, message-id deduplication and exchange lifetime

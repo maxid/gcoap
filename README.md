@@ -17,7 +17,10 @@ A minimal **CoAP server state machine** for Go, built on the
 - Query parsing and URI-path options
 - Observe/Notify (RFC 7641 minimal): register, notify, cancel
 - Block-wise transfer (RFC 7959): Block2 reads and Block1 writes
-- Client state machine: `Dial` + `Do` (CON, timeout retry, automatic Block2 assembly)
+- Client state machine: `Dial` + `Do` (CON retransmission, automatic Block2 assembly)
+- RFC 7252 exchange layer: message-id deduplication per peer (bounded cache,
+  exchange lifetime), exponential-backoff retransmission with `ACK_RANDOM_FACTOR`
+  jitter and `MAX_RETRANSMIT`, cancellable handler contexts
 - DTLS transport (server/client) via gnety
 - 4.04 for unknown routes
 
@@ -33,7 +36,7 @@ _ = srv.Start(context.Background())
 
 ## Roadmap
 
-- complete retransmission/duplicate handling and separate responses
+- separate responses and confirmable (retransmitted) notifications
 - bounded Observe/Block state and advanced client Observe/Block1 support
 - independent interoperability and weak-network testing
 

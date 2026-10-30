@@ -150,4 +150,5 @@ func (s *Server) untrackSession(sess *gnety.Session) {
 	delete(s.sessions, sess.ID)
 	s.obsMu.Unlock()
 	s.removeSessionObservers(sess.ID)
+	s.cancelSessionHandlers(sess.ID)
 }

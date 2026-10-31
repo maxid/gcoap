@@ -67,6 +67,17 @@ defer obs.Cancel(context.Background())
 fmt.Println(string(initial.Payload)) // registration response
 ```
 
+## 可运行示例
+
+[`examples/server-client`](examples/server-client/main.go) 在同一程序内运行服务端与客户端：
+服务端暴露 `/hello`，客户端发送 confirmable GET 并打印响应，然后双方停止。
+服务端监听回环地址的临时端口并打印实际地址：
+
+```sh
+go run ./examples/server-client
+go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
+```
+
 ## 路线图
 
 - 服务端有界的 Block1 上传状态（TTL、全局上限）

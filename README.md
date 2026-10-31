@@ -68,6 +68,18 @@ defer obs.Cancel(context.Background())
 fmt.Println(string(initial.Payload)) // registration response
 ```
 
+## Runnable examples
+
+[`examples/server-client`](examples/server-client/main.go) runs a server and a
+client in one program: the server exposes `/hello`, the client sends a
+confirmable GET and prints the response, and both sides stop. The server
+listens on an ephemeral loopback port and prints the address it chose:
+
+```sh
+go run ./examples/server-client
+go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
+```
+
 ## Roadmap
 
 - bounded Block1 upload state on the server (TTL, global cap)

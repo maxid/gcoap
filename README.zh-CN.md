@@ -78,10 +78,37 @@ go run ./examples/server-client
 go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
 ```
 
+## 限额与指标
+
+| 字段 | 默认 | 含义 |
+| --- | --- | --- |
+| `Config.BlockSize` | 1024 | 大响应切片使用的 Block2 大小 |
+| `Config.MaxObservers` | 256 | 全局 observer 上限，超出注册回 5.03 |
+| `Config.MaxBlockUploads` | 128 | 进行中 Block1 上传上限，超出新上传回 5.03 |
+| `Config.MaxBlockPayload` | 1 MiB | 单个上传总字节，也用于 Size1 预检（4.13） |
+| `Config.BlockIdleTimeout` | 60s | 空闲上传与完成响应的清理 |
+| `ClientConfig.MaxResponseSize` | 1 MiB | Block2 组装上限，超出 `ErrResponseTooLarge` |
+
+`Config.Metrics` 与 `ClientConfig.Metrics` 接收低基数事件：`Exchange(method, result, duration)`、
+`Dedup()`、`Retransmit(kind)`、`Observe(event)`、`Block(direction, result)`。nil 钩子零成本，
+`NoopMetrics` 是显式空实现；标签不携带 token、URI path 或对端地址。
+
+## 互操作测试
+
+针对独立 CoAP 实现（`github.com/plgd-dev/go-coap/v3`）的测试放在独立的
+[`interop`](interop/README.zh-CN.md) 模块里，因此本模块的依赖图不携带第三方 CoAP 栈：
+
+```sh
+cd interop && go test ./...
+```
+
+覆盖 UDP 与 DTLS 双向，包括 Block1、Block2 与 Observe。
+
 ## 路线图
 
-- 服务端有界的 Block1 上传状态（TTL、全局上限）
-- 独立的互操作性测试与弱网测试
+- 服务端有界的 Block1 上传状态（TTL、全局上限）— 已完成
+- 独立的互操作性测试与弱网测试 — 互操作已完成，弱网测试待做
+- 服务端 per-peer 的 observer/upload 配额
 
 ## 许可证
 

@@ -7,7 +7,8 @@ A minimal **CoAP server state machine** for Go, built on the
 
 > Status: **development snapshot (untagged)** — request routing,
 > confirmable/non-confirmable responses, Observe/Notify and block-wise transfer
-> on both sides of the wire. DTLS is available.
+> on both sides of the wire, with bounded Block1 uploads, a concurrency-safe
+> client and low-cardinality metrics. DTLS is available.
 > No tags are published until a stable release; use commit pseudo-versions.
 
 ## Features
@@ -36,6 +37,16 @@ A minimal **CoAP server state machine** for Go, built on the
   exponential-backoff retransmission with `ACK_RANDOM_FACTOR` jitter and
   `MAX_RETRANSMIT`, cancellable handler contexts
 - DTLS transport (server/client) via gnety
+- Bounded Block1 uploads: `MaxBlockUploads`, `MaxBlockPayload` (with Size1
+  pre-check), `BlockIdleTimeout`; a repeated block replays 2.31 and a repeated
+  final block replays the cached final response; over-limit, out-of-order and
+  method/URI-changing blocks are answered with 4.13, 4.08 or 5.03
+- Server-initiated Block2: a response body larger than `BlockSize` is sliced even
+  when the request carried no Block2 option
+- `Client.Do` is safe for concurrent use: every request owns its token and
+  message id, so responses never cross between callers
+- `Metrics` hooks on the server and the client (nil by default) for exchanges,
+  deduplication hits, retransmissions, observe events and block outcomes
 - 4.04 for unknown routes
 
 ## Example
@@ -80,10 +91,41 @@ go run ./examples/server-client
 go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
 ```
 
+## Limits and metrics
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `Config.BlockSize` | 1024 | Block2 size a large response is sliced into |
+| `Config.MaxObservers` | 256 | observers across all resources; beyond it a registration is 5.03 |
+| `Config.MaxBlockUploads` | 128 | Block1 uploads in progress; beyond it a new upload is 5.03 |
+| `Config.MaxBlockPayload` | 1 MiB | total body of one upload, also checked against Size1 (4.13) |
+| `Config.BlockIdleTimeout` | 60s | idle upload and completed-response cleanup |
+| `ClientConfig.MaxResponseSize` | 1 MiB | assembled Block2 body; beyond it `ErrResponseTooLarge` |
+
+`Config.Metrics` and `ClientConfig.Metrics` receive low-cardinality events:
+`Exchange(method, result, duration)`, `Dedup()`, `Retransmit(kind)`,
+`Observe(event)` and `Block(direction, result)`. A nil hook costs nothing;
+`NoopMetrics` is the explicit no-op. Labels never carry a token, URI path or
+peer address.
+
+## Interoperability tests
+
+The tests against an independent CoAP implementation
+(`github.com/plgd-dev/go-coap/v3`) live in the separate
+[`interop`](interop/README.md) module, so this module's dependency graph carries
+no third-party CoAP stack:
+
+```sh
+cd interop && go test ./...
+```
+
+They cover UDP and DTLS in both directions, including Block1, Block2 and Observe.
+
 ## Roadmap
 
-- bounded Block1 upload state on the server (TTL, global cap)
-- independent interoperability and weak-network testing
+- bounded Block1 upload state on the server (TTL, global cap) — done
+- independent interoperability testing — done; weak-network testing remains
+- per-peer observer and upload quotas
 
 ## License
 

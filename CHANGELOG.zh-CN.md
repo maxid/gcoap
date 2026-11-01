@@ -6,6 +6,13 @@
 
 ## [Unreleased]
 
+- Block1 上传状态有界：`Config.MaxBlockUploads`（128）与 `Config.MaxBlockPayload`（1 MiB，同时校验声明的 Size1）限制单个异常客户端能占用的状态与内存，`Config.BlockIdleTimeout`（60s）回收空闲上传与完成响应。改变 method/URI/块大小或乱序的块回 4.08；超限回 4.13；超过并发上限的新上传回 5.03。重复块重放 2.31 且不重复追加；带新 message id 的重复最后一块重放缓存的最终响应。
+- 大于 `Config.BlockSize`（1024）的 GET 响应即使请求未带 Block2 选项也会切片，使超过 MTU 的响应在受限链路上可送达。
+- `Client.Do` 并发安全：去掉全局串行锁，分配 message id 时避让在途交换，每个调用方保有独立 token。`ClientConfig.MaxResponseSize`（1 MiB）限制 Block2 组装，超出返回 `ErrResponseTooLarge`。
+- `Config.Metrics` 与 `ClientConfig.Metrics` 接收低基数事件（`Exchange`、`Dedup`、`Retransmit`、`Observe`、`Block`）；nil 零成本，`NoopMetrics` 是显式空实现。
+- `Config.MaxObservers`（256）限制 observer 注册，超出回 5.03。
+- 会话关闭时会清理其上传状态（旧 helper 从未被调用）。
+
 - 基于 gnety UDP 的最小 CoAP 服务端：路由、CON/ACK 与 NON 响应、query/path 解析、4.04 处理。
 - Observe/Notify：注册（Observe=0）、通知、取消（Observe=1）。
 - 块传输：Block2 响应切片与 Block1 上传拼装。

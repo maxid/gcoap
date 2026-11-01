@@ -4,6 +4,30 @@
 
 ## [Unreleased]
 
+- Block1 upload state is bounded: `Config.MaxBlockUploads` (128) and
+  `Config.MaxBlockPayload` (1 MiB, also checked against a declared Size1) limit
+  the state and memory one misbehaving client can occupy, and
+  `Config.BlockIdleTimeout` (60s) expires idle uploads and completed responses.
+  A block that changes the method, URI or block size, or arrives out of order,
+  is answered with 4.08; an over-limit body with 4.13; a new upload beyond the
+  limit with 5.03. A repeated block replays 2.31 without appending the body
+  twice, and a repeated final block with a new message id replays the cached
+  final response.
+- A GET response larger than `Config.BlockSize` (1024) is sliced into Block2
+  even when the request carried no Block2 option, so a body larger than the MTU
+  is deliverable on a constrained link.
+- `Client.Do` is safe for concurrent use: the global serialization mutex is gone,
+  message ids avoid in-flight exchanges, and every caller keeps its own token.
+  `ClientConfig.MaxResponseSize` (1 MiB) bounds Block2 assembly and reports
+  `ErrResponseTooLarge`.
+- `Config.Metrics` and `ClientConfig.Metrics` receive low-cardinality events
+  (`Exchange`, `Dedup`, `Retransmit`, `Observe`, `Block`); a nil hook costs
+  nothing and `NoopMetrics` is the explicit no-op.
+- `Config.MaxObservers` (256) bounds observer registrations; beyond it a
+  registration is answered with 5.03.
+- Uploads are now cleaned up when their session closes (the old helper was never
+  called).
+
 - Minimal CoAP server on gnety UDP: routing, CON/ACK and NON responses,
   query/path parsing, 4.04 handling.
 - Observe/Notify: register (Observe=0), notifications, cancel (Observe=1).

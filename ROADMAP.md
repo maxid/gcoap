@@ -14,3 +14,12 @@
 - [x] Separate responses (empty ACK then a retransmitted CON response)
 - [x] Client Block1 upload (size negotiation, Size1, early server response)
 - [x] Client Observe (sequence tracking, NON/CON notifications, ACK, cancel)
+- [x] Bounded Block1 upload state (TTL, size and count limits, duplicate replay,
+      cached final response)
+- [x] Server-initiated Block2 slicing for large response bodies
+- [x] Concurrency-safe Client.Do and a configurable Block2 assembly limit
+- [x] Metrics hooks (exchange, dedup, retransmit, observe, block)
+- [x] Independent interoperability tests (plgd-dev/go-coap, UDP and DTLS,
+      both directions)
+- [ ] Weak-network fault-injection matrix
+- [ ] Per-peer observer and upload quotas

@@ -100,7 +100,7 @@ func TestClientBlock1ServerReassembly(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer cli.Close()
+			defer func() { _ = cli.Close() }()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
@@ -146,7 +146,7 @@ func TestClientBlock1Sequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	payload := bytes.Repeat([]byte("0123456789abcdef"), 4)[:50] // 16+16+16+2
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -232,7 +232,7 @@ func TestClientBlock1ServerDowngrade(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	payload := make([]byte, 2500)
 	for i := range payload {
@@ -288,7 +288,7 @@ func TestClientBlock1EarlyResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -327,7 +327,7 @@ func TestClientBlock1SizeLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cli.Close()
+		defer func() { _ = cli.Close() }()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -366,7 +366,7 @@ func TestClientBlock1SizeLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer cli.Close()
+		defer func() { _ = cli.Close() }()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -424,7 +424,7 @@ func TestClientBodyNotBlockedBelowBlockSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

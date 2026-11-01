@@ -100,7 +100,7 @@ func (s *Server) outboundPending() int {
 // until the peer ACKs or resets it, the exchange lifetime ends or ctx is
 // cancelled. Every transmission is the identical datagram (same message id and
 // token), as RFC 7252 section 4.2 requires.
-func (s *Server) sendConfirmable(ctx context.Context, sess *gnety.Session, msg coap.Message) outboundResult {
+func (s *Server) sendConfirmable(ctx context.Context, sess *gnety.Session, msg coap.Message, kind string) outboundResult {
 	if sess == nil {
 		return outboundSendFailed
 	}
@@ -116,13 +116,18 @@ func (s *Server) sendConfirmable(ctx context.Context, sess *gnety.Session, msg c
 	defer s.unregisterOutbound(key, ex)
 
 	schedule := s.params.newRetransmissionSchedule()
+	sent := false
 	for {
 		if ctx.Err() != nil {
 			return outboundCancelled
 		}
+		if sent {
+			s.recordRetransmit(kind)
+		}
 		if err := sess.Send(raw); err != nil {
 			return outboundSendFailed
 		}
+		sent = true
 		wait, retransmit := schedule.next()
 		if wait <= 0 {
 			select {

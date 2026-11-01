@@ -71,7 +71,7 @@ func TestBlock2Read(t *testing.T) {
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Stop(context.Background())
+	defer func() { _ = srv.Stop(context.Background()) }()
 	conn := dialServer(t, srv)
 
 	var got []byte
@@ -119,7 +119,7 @@ func TestBlock1Write(t *testing.T) {
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Stop(context.Background())
+	defer func() { _ = srv.Stop(context.Background()) }()
 	conn := dialServer(t, srv)
 	payload := []byte("0123456789abcdef0123456789abcdef") // 32 bytes, two 16-byte blocks
 

@@ -119,6 +119,7 @@ func (c *Client) Observe(ctx context.Context, req ClientRequest, notify func(Cli
 	o.seq = seq
 	o.established = true
 	o.mu.Unlock()
+	c.recordObserve(ObserveStarted)
 	return o, clientResponseOf(resp), nil
 }
 
@@ -184,6 +185,7 @@ func (o *Observation) stopLocal(sendDeregister bool) bool {
 		return false
 	}
 	o.cli.removeObservation(o)
+	o.cli.recordObserve(ObserveStopped)
 	close(o.done)
 	if sendDeregister {
 		_ = o.sendDeregister(context.Background(), false)
@@ -268,6 +270,9 @@ func (o *Observation) deliver(m coap.Message) {
 		o.notify(clientResponseOf(m))
 	}
 	o.mu.Unlock()
+	if deliver {
+		o.cli.recordObserve(ObserveNotification)
+	}
 	if final {
 		// A server that cannot continue the observation answers with an error
 		// notification (RFC 7641 section 3.2); it still made it to the callback,

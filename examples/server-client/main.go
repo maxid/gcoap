@@ -43,7 +43,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("gcoap: dial %s: %v", srv.Addr(), err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	resp, err := cli.Do(ctx, gcoap.ClientRequest{Code: coap.CodeGET, Path: *path})
 	if err != nil {

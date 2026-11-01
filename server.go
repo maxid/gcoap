@@ -105,7 +105,47 @@ type Config struct {
 	// when this is enabled. A handler can also request a separate response
 	// explicitly with Request.RespondLater.
 	SeparateResponses bool
+
+	// BlockSize is the block size in bytes a response body is sliced into when
+	// the request did not ask for a specific Block2 size. A power of two from
+	// 16 to 1024; zero keeps DefaultServerBlockSize (1024).
+	BlockSize int
+	// MaxObservers bounds the observers registered across every resource.
+	// Zero keeps DefaultMaxObservers. A registration beyond the limit is
+	// rejected with 5.03 Service Unavailable instead of evicting another one.
+	MaxObservers int
+	// MaxBlockUploads bounds the Block1 uploads in progress at one time. Zero
+	// keeps DefaultMaxBlockUploads. A new upload beyond the limit is rejected
+	// with 5.03 Service Unavailable.
+	MaxBlockUploads int
+	// MaxBlockPayload bounds the total body of one Block1 upload and rejects a
+	// larger Size1 before any state or memory is reserved. Zero keeps
+	// DefaultMaxBlockPayload.
+	MaxBlockPayload int
+	// BlockIdleTimeout expires an idle Block1 upload and the cached response of
+	// a completed one. Zero keeps DefaultBlockIdleTimeout.
+	BlockIdleTimeout time.Duration
+	// Metrics receives low-cardinality protocol events. Nil costs nothing.
+	Metrics Metrics
 }
+
+// Default capacity and cleanup values used when a Config field is zero.
+const (
+	// DefaultMaxObservers is the observer limit when MaxObservers is zero.
+	DefaultMaxObservers = 256
+	// DefaultMaxBlockUploads is the in-flight Block1 upload limit when
+	// MaxBlockUploads is zero.
+	DefaultMaxBlockUploads = 128
+	// DefaultMaxBlockPayload is the per-upload body limit when MaxBlockPayload
+	// is zero.
+	DefaultMaxBlockPayload = 1 << 20
+	// DefaultBlockIdleTimeout is the Block1 idle timeout when BlockIdleTimeout
+	// is zero.
+	DefaultBlockIdleTimeout = 60 * time.Second
+	// DefaultServerBlockSize is the Block2 size a server slices unsolicited
+	// response bodies into when BlockSize is zero.
+	DefaultServerBlockSize = 1024
+)
 
 // Server is a minimal CoAP server.
 type Server struct {
@@ -137,12 +177,55 @@ type Server struct {
 
 	blockMu sync.Mutex
 	uploads map[string]*upload
+	// completed caches the final response of a finished Block1 upload, so a
+	// repeated final block with a fresh message id is answered instead of
+	// restarting the transfer.
+	completed map[string]*completedUpload
+
+	maxObservers     int
+	maxBlockUploads  int
+	maxBlockPayload  int
+	blockIdleTimeout time.Duration
+	blockSize        int
+	blockExp         uint8
+	metrics          Metrics
 }
 
 // New creates a CoAP server.
 func New(cfg Config) (*Server, error) {
 	if cfg.MaxExchanges < 0 {
 		return nil, errors.New("gcoap: MaxExchanges must not be negative")
+	}
+	if cfg.MaxObservers < 0 {
+		return nil, errors.New("gcoap: MaxObservers must not be negative")
+	}
+	if cfg.MaxBlockUploads < 0 {
+		return nil, errors.New("gcoap: MaxBlockUploads must not be negative")
+	}
+	if cfg.MaxBlockPayload < 0 {
+		return nil, errors.New("gcoap: MaxBlockPayload must not be negative")
+	}
+	if cfg.BlockIdleTimeout < 0 {
+		return nil, errors.New("gcoap: BlockIdleTimeout must not be negative")
+	}
+	if cfg.MaxObservers == 0 {
+		cfg.MaxObservers = DefaultMaxObservers
+	}
+	if cfg.MaxBlockUploads == 0 {
+		cfg.MaxBlockUploads = DefaultMaxBlockUploads
+	}
+	if cfg.MaxBlockPayload == 0 {
+		cfg.MaxBlockPayload = DefaultMaxBlockPayload
+	}
+	if cfg.BlockIdleTimeout == 0 {
+		cfg.BlockIdleTimeout = DefaultBlockIdleTimeout
+	}
+	blockExp, err := blockSizeExp(cfg.BlockSize)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.BlockSize == 0 {
+		cfg.BlockSize = DefaultServerBlockSize
 	}
 	params, err := defaultExchangeParams().withTiming(
 		cfg.AckTimeout, cfg.AckRandomFactor, cfg.MaxRetransmit, cfg.ExchangeLifetime)
@@ -153,16 +236,25 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		routes: make(map[string]Handler), prefixes: make(map[string]Handler),
 		observers: make(map[string][]*observer), sessions: make(map[string]*gnety.Session),
-		uploads:  make(map[string]*upload),
-		params:   params,
-		dedup:    newDedupCache(cfg.MaxExchanges, params.exchangeLifetime),
-		baseCtx:  baseCtx,
-		cancel:   cancel,
-		handlers: make(map[string]map[uint64]context.CancelFunc),
+		uploads:   make(map[string]*upload),
+		completed: make(map[string]*completedUpload),
+		params:    params,
+		dedup:     newDedupCache(cfg.MaxExchanges, params.exchangeLifetime),
+		baseCtx:   baseCtx,
+		cancel:    cancel,
+		handlers:  make(map[string]map[uint64]context.CancelFunc),
 
 		confirmableNotifications: cfg.ConfirmableNotifications,
 		separateResponses:        cfg.SeparateResponses,
 		outbound:                 make(map[outboundKey]*outboundExchange),
+
+		maxObservers:     cfg.MaxObservers,
+		maxBlockUploads:  cfg.MaxBlockUploads,
+		maxBlockPayload:  cfg.MaxBlockPayload,
+		blockIdleTimeout: cfg.BlockIdleTimeout,
+		blockSize:        cfg.BlockSize,
+		blockExp:         blockExp,
+		metrics:          cfg.Metrics,
 	}
 	network := cfg.Network
 	if network == "" {
@@ -260,6 +352,10 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.hMu.Unlock()
 	cancel()
 	s.dedup.reset()
+	s.blockMu.Lock()
+	s.uploads = make(map[string]*upload)
+	s.completed = make(map[string]*completedUpload)
+	s.blockMu.Unlock()
 	return s.srv.Stop(ctx)
 }
 
@@ -289,6 +385,7 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 	if confirmable {
 		key = exchangeKey{peer: peerIdentity(sess), messageID: m.MessageID}
 		if cached, hit := s.dedup.begin(key); hit {
+			s.recordDedup()
 			if len(cached) > 0 {
 				_ = sess.Send(cached)
 			}

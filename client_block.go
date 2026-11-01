@@ -90,12 +90,15 @@ func (c *Client) uploadRequest(ctx context.Context, req ClientRequest, token []b
 		// A response Size1 announces the largest request body the server is
 		// willing to accept (RFC 7959 section 4); continuing cannot succeed.
 		if limit, ok := resp.Size1(); ok && int(limit) < body {
+			c.recordBlock(Block1, BlockTooLarge)
 			return ClientResponse{}, fmt.Errorf("%w: server accepts %d of %d bytes", ErrRequestTooLarge, limit, body)
 		}
 		if !block.More {
 			if resp.Code == coap.CodeContinue {
+				c.recordBlock(Block1, BlockSequence)
 				return ClientResponse{}, fmt.Errorf("%w: server continued after the final block", ErrBlockSequence)
 			}
+			c.recordBlock(Block1, BlockComplete)
 			return c.collectResponse(ctx, req, token, resp, &block)
 		}
 		if resp.Code != coap.CodeContinue {
@@ -108,6 +111,7 @@ func (c *Client) uploadRequest(ctx context.Context, req ClientRequest, token []b
 				Payload: resp.Payload,
 			}, nil
 		}
+		c.recordBlock(Block1, BlockContinue)
 		next, ok, err := requestBlock(resp, coap.OptionBlock1)
 		if err != nil {
 			return ClientResponse{}, err

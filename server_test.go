@@ -35,7 +35,7 @@ func exchange(t *testing.T, srv *Server, req coap.Message) coap.Message {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 	raw, err := req.Marshal()
 	if err != nil {
@@ -108,7 +108,7 @@ func TestPrefixRoute(t *testing.T) {
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Stop(context.Background())
+	defer func() { _ = srv.Stop(context.Background()) }()
 	req := coap.Message{Type: coap.Confirmable, Code: coap.CodePOST, MessageID: 1,
 		Options: []coap.Option{{Number: coap.OptionURIPath, Value: []byte("rd")}, {Number: coap.OptionURIPath, Value: []byte("abc")}}}
 	resp := exchange(t, srv, req)

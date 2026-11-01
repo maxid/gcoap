@@ -42,38 +42,59 @@ func observeOption(value coap.Observe) coap.Option {
 	}
 }
 
-func (s *Server) addObserver(sess *gnety.Session, token []byte, path string) {
+// addObserver registers one observation. It reports false when the server
+// already holds MaxObservers observations, so the caller can answer 5.03
+// instead of silently dropping the request.
+func (s *Server) addObserver(sess *gnety.Session, token []byte, path string) bool {
 	if sess == nil {
-		return
+		return false
 	}
 	s.obsMu.Lock()
-	defer s.obsMu.Unlock()
 	if s.observers == nil {
 		s.observers = make(map[string][]*observer)
 	}
 	for _, o := range s.observers[path] {
 		if o.sessionID == sess.ID && o.token == string(token) {
-			return
+			s.obsMu.Unlock()
+			return true
 		}
+	}
+	if s.observerCountLocked() >= s.maxObservers {
+		s.obsMu.Unlock()
+		return false
 	}
 	s.observers[path] = append(s.observers[path], &observer{
 		sessionID: sess.ID,
 		token:     string(token),
 		path:      path,
 	})
+	s.obsMu.Unlock()
+	s.recordObserve(ObserveRegistered)
+	return true
+}
+
+// observerCountLocked returns the total number of observers. The caller holds
+// obsMu.
+func (s *Server) observerCountLocked() int {
+	total := 0
+	for _, list := range s.observers {
+		total += len(list)
+	}
+	return total
 }
 
 func (s *Server) cancelObserver(sess *gnety.Session, token []byte, path string) {
 	if sess == nil {
 		return
 	}
+	removed := 0
 	s.obsMu.Lock()
-	defer s.obsMu.Unlock()
 	list := s.observers[path]
 	out := list[:0]
 	for _, o := range list {
 		if o.sessionID == sess.ID && o.token == string(token) {
 			s.stopObserverLocked(o)
+			removed++
 			continue
 		}
 		out = append(out, o)
@@ -83,11 +104,15 @@ func (s *Server) cancelObserver(sess *gnety.Session, token []byte, path string) 
 	} else {
 		s.observers[path] = out
 	}
+	s.obsMu.Unlock()
+	if removed > 0 {
+		s.recordObserve(ObserveCancelled)
+	}
 }
 
 func (s *Server) removeSessionObservers(sessionID string) {
+	removed := 0
 	s.obsMu.Lock()
-	defer s.obsMu.Unlock()
 	for path, list := range s.observers {
 		out := list[:0]
 		for _, o := range list {
@@ -96,12 +121,17 @@ func (s *Server) removeSessionObservers(sessionID string) {
 				continue
 			}
 			s.stopObserverLocked(o)
+			removed++
 		}
 		if len(out) == 0 {
 			delete(s.observers, path)
 		} else {
 			s.observers[path] = out
 		}
+	}
+	s.obsMu.Unlock()
+	for range removed {
+		s.recordObserve(ObserveCancelled)
 	}
 }
 
@@ -199,12 +229,18 @@ func (s *Server) Notify(path string, resp Response) int {
 		if sess := s.sessionByID(t.o.sessionID); sess != nil {
 			if err := sess.Send(t.msg); err == nil {
 				sent++
+				s.recordObserve(ObserveNotified)
+			} else {
+				s.recordObserve(ObserveFailed)
 			}
+		} else {
+			s.recordObserve(ObserveFailed)
 		}
 	}
 	for _, t := range start {
 		go s.notificationLoop(t.o, t.msg, t.ctx, t.cancel, t.gen)
 		sent++
+		s.recordObserve(ObserveNotified)
 	}
 	return sent
 }
@@ -224,7 +260,7 @@ func (s *Server) notificationLoop(o *observer, first coap.Message, ctx context.C
 		sess := s.sessionByID(o.sessionID)
 		result := outboundSendFailed
 		if sess != nil {
-			result = s.sendConfirmable(ctx, sess, msg)
+			result = s.sendConfirmable(ctx, sess, msg, RetransmitNotification)
 		}
 
 		s.obsMu.Lock()
@@ -251,6 +287,7 @@ func (s *Server) notificationLoop(o *observer, first coap.Message, ctx context.C
 		default:
 			s.removeObserverLocked(o)
 			s.obsMu.Unlock()
+			s.recordObserve(ObserveFailed)
 			return
 		}
 	}
@@ -293,4 +330,5 @@ func (s *Server) untrackSession(sess *gnety.Session) {
 	s.obsMu.Unlock()
 	s.removeSessionObservers(sess.ID)
 	s.cancelSessionHandlers(sess.ID)
+	s.cleanupUploads(sess.ID)
 }

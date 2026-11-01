@@ -34,14 +34,14 @@ func TestObserveNotifyCancel(t *testing.T) {
 	if err := srv.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	defer srv.Stop(context.Background())
+	defer func() { _ = srv.Stop(context.Background()) }()
 
 	addr, _ := net.ResolveUDPAddr("udp", srv.Addr())
 	conn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
 	token := []byte{0x01, 0x02}
 	req := coap.Message{

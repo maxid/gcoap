@@ -109,7 +109,7 @@ func TestClientRetransmitsUntilAnswered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -142,7 +142,7 @@ func TestClientGivesUpAfterMaxRetransmit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -170,7 +170,7 @@ func TestClientStopsOnReset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -195,7 +195,7 @@ func TestClientStopsRetransmittingOnEmptyAck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 

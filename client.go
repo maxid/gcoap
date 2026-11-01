@@ -28,6 +28,10 @@ var ErrClientClosed = errors.New("gcoap: client closed")
 // the body being uploaded.
 var ErrRequestTooLarge = errors.New("gcoap: request body exceeds the size limit")
 
+// ErrResponseTooLarge is returned when an assembled Block2 response exceeds
+// ClientConfig.MaxResponseSize.
+var ErrResponseTooLarge = errors.New("gcoap: response body exceeds the size limit")
+
 // ClientRequest is a client-side CoAP request.
 type ClientRequest struct {
 	Code    coap.Code
@@ -44,22 +48,24 @@ type ClientResponse struct {
 	Payload []byte
 }
 
-// Client is a minimal CoAP client over gnety UDP.
+// Client is a CoAP client over gnety UDP or DTLS.
 //
 // One goroutine reads the connection and hands each datagram to the exchange or
 // observation it belongs to, so an observation keeps receiving notifications
-// while a request runs. Do is serialized (one request at a time), observations
-// are independent of it.
+// while a request runs. Do is safe for concurrent use: every call owns its token
+// and message id, and the reader demultiplexes the responses. Observations are
+// independent of the request path.
 type Client struct {
-	conn   *gnety.Client
-	nextID atomic.Uint32
-	mu     sync.Mutex // serializes Do
-	params exchangeParams
+	conn    *gnety.Client
+	nextID  atomic.Uint32
+	params  exchangeParams
+	metrics Metrics
 
 	// Block1 upload configuration, set once by DialConfig.
-	blockSize  int
-	blockExp   uint8
-	maxRequest int
+	blockSize   int
+	blockExp    uint8
+	maxRequest  int
+	maxResponse int
 
 	// readPoll bounds one receive call so the reader notices Close. It is a
 	// field rather than a constant so tests can shorten it.
@@ -103,7 +109,17 @@ type ClientConfig struct {
 	// ErrRequestTooLarge before anything is sent. Zero keeps
 	// DefaultMaxRequestSize.
 	MaxRequestSize int
+	// MaxResponseSize bounds the body assembled from Block2 responses: a larger
+	// one is rejected with ErrResponseTooLarge. Zero keeps
+	// DefaultMaxResponseSize.
+	MaxResponseSize int
+	// Metrics receives low-cardinality protocol events. Nil costs nothing.
+	Metrics Metrics
 }
+
+// DefaultMaxResponseSize bounds an assembled Block2 body when
+// ClientConfig.MaxResponseSize is zero.
+const DefaultMaxResponseSize = 1 << 20
 
 // Dial connects to a CoAP server over UDP.
 func Dial(ctx context.Context, addr string) (*Client, error) {
@@ -128,6 +144,13 @@ func DialConfig(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	if maxRequest < 0 {
 		return nil, errors.New("gcoap: MaxRequestSize must not be negative")
 	}
+	maxResponse := cfg.MaxResponseSize
+	if maxResponse == 0 {
+		maxResponse = DefaultMaxResponseSize
+	}
+	if maxResponse < 0 {
+		return nil, errors.New("gcoap: MaxResponseSize must not be negative")
+	}
 	network := cfg.Network
 	if network == "" {
 		network = "udp"
@@ -145,6 +168,8 @@ func DialConfig(ctx context.Context, cfg ClientConfig) (*Client, error) {
 		blockSize:    blockSizeOf(blockExp),
 		blockExp:     blockExp,
 		maxRequest:   maxRequest,
+		maxResponse:  maxResponse,
+		metrics:      cfg.Metrics,
 		readPoll:     defaultReadPoll,
 		baseCtx:      baseCtx,
 		cancel:       cancel,
@@ -182,8 +207,15 @@ func (c *Client) Close() error {
 // such an early response is not followed). Every request body is checked against
 // ClientConfig.MaxRequestSize first.
 func (c *Client) Do(ctx context.Context, req ClientRequest) (ClientResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	start := time.Now()
+	resp, err := c.do(ctx, req)
+	c.recordExchange(req.Code, resp.Code, err, time.Since(start))
+	return resp, err
+}
+
+// do is Do without the metric hook: every call owns its token and message id, so
+// concurrent callers never share exchange state.
+func (c *Client) do(ctx context.Context, req ClientRequest) (ClientResponse, error) {
 	if c.baseCtx.Err() != nil {
 		return ClientResponse{}, c.closedError()
 	}
@@ -210,13 +242,18 @@ func (c *Client) Do(ctx context.Context, req ClientRequest) (ClientResponse, err
 // of the request; RFC 7959 section 3.3 requires the follow-up requests to repeat
 // it instead of the body, which is already on the server.
 func (c *Client) collectResponse(ctx context.Context, req ClientRequest, token []byte, resp coap.Message, finalBlock *coap.Block) (ClientResponse, error) {
+	if len(resp.Payload) > c.maxResponse {
+		return ClientResponse{}, fmt.Errorf("%w: %d of %d bytes", ErrResponseTooLarge, len(resp.Payload), c.maxResponse)
+	}
 	full := append([]byte(nil), resp.Payload...)
+	assembled := false
 	for {
 		b, ok := resp.Block2()
 		if !ok || !b.More {
 			break
 		}
 		if b.Num == 0x0fffff {
+			c.recordBlock(Block2, BlockError)
 			return ClientResponse{}, fmt.Errorf("%w: Block2 number overflow", ErrBlockSequence)
 		}
 		next := coap.Block{Num: b.Num + 1, SizeExp: b.SizeExp}
@@ -228,10 +265,19 @@ func (c *Client) collectResponse(ctx context.Context, req ClientRequest, token [
 		}
 		part, err := c.exchange(ctx, &msg, false)
 		if err != nil {
+			c.recordBlock(Block2, BlockError)
 			return ClientResponse{}, err
+		}
+		if len(full)+len(part.Payload) > c.maxResponse {
+			c.recordBlock(Block2, BlockTooLarge)
+			return ClientResponse{}, fmt.Errorf("%w: more than %d bytes", ErrResponseTooLarge, c.maxResponse)
 		}
 		full = append(full, part.Payload...)
 		resp = part
+		assembled = true
+	}
+	if assembled {
+		c.recordBlock(Block2, BlockAssembled)
 	}
 	return ClientResponse{Code: resp.Code, Options: resp.Options, Payload: full}, nil
 }
@@ -337,13 +383,18 @@ func (c *Client) exchange(ctx context.Context, msg *coap.Message, ignoreNotifica
 	defer c.releaseExchange(ex)
 
 	schedule := c.params.newRetransmissionSchedule()
+	sent := false
 	for {
+		if sent {
+			c.recordRetransmit(RetransmitRequest)
+		}
 		if err := c.conn.Send(*msg); err != nil {
 			if c.baseCtx.Err() != nil {
 				return coap.Message{}, c.closedError()
 			}
 			return coap.Message{}, err
 		}
+		sent = true
 		wait, retransmit := schedule.next()
 		for {
 			resp, kind, err := c.await(ctx, ex, wait)

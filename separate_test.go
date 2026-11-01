@@ -179,7 +179,7 @@ func TestClientReceivesSeparateResponseAndAcksIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cli.Close()
+	defer func() { _ = cli.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

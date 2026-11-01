@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"sync"
+	"time"
 
 	"github.com/maxid/gnety"
 	"github.com/maxid/gnety/codec/coap"
@@ -50,7 +51,9 @@ type requestExchange struct {
 type requestPlan struct {
 	path            string
 	query           url.Values
+	requestPath     string
 	finalBlock1     *coap.Option
+	finalBlock1Num  uint32
 	early           *Response
 	handler         Handler
 	observeRegister bool
@@ -60,8 +63,10 @@ type requestPlan struct {
 // caller starts it on its own goroutine, so the transport read loop stays free
 // while a slow handler works.
 func (s *Server) answerRequest(st *requestExchange) {
+	start := time.Now()
 	st.plan = s.planRequest(st)
 	if st.plan.early != nil {
+		s.recordExchange(st.msg.Code, st.plan.early.Code, time.Since(start))
 		st.deliver(*st.plan.early)
 		return
 	}
@@ -80,6 +85,11 @@ func (s *Server) answerRequest(st *requestExchange) {
 			exchange: st,
 		})
 	}
+	// A handler that answers from another goroutine returns a zero response; the
+	// exchange is not complete yet, so it is not recorded as an error.
+	if resp.Code != 0 {
+		s.recordExchange(st.msg.Code, resp.Code, time.Since(start))
+	}
 	st.handlerReturned(resp)
 }
 
@@ -88,7 +98,7 @@ func (s *Server) answerRequest(st *requestExchange) {
 func (s *Server) planRequest(st *requestExchange) requestPlan {
 	m := st.msg
 	path, query := parsePath(m)
-	plan := requestPlan{path: path, query: query}
+	plan := requestPlan{path: path, query: query, requestPath: blockRequestPath(path, query)}
 	// Block1 reassembly applies to the methods that carry a request body: PUT
 	// and POST (RFC 7959 is method agnostic, and the client uploads the body of
 	// either block-wise).
@@ -97,22 +107,37 @@ func (s *Server) planRequest(st *requestExchange) requestPlan {
 			plan.early = &Response{Code: coap.CodeBadRequest}
 			return plan
 		} else if ok {
-			full, final, err := s.processBlock1(st.sess, m, b)
+			full, final, replay, err := s.processBlock1(st.sess, m, b, plan.requestPath)
+			if replay != nil {
+				s.recordBlock(Block1, BlockReplay)
+				plan.early = replay
+				return plan
+			}
 			if err != nil {
-				plan.early = &Response{Code: coap.CodeBadRequest}
+				code := coap.CodeBadRequest
+				var protocol *block1Error
+				if errors.As(err, &protocol) {
+					code = protocol.code
+				}
+				s.recordBlock(Block1, block1Result(err))
+				plan.early = &Response{Code: code}
 				return plan
 			}
 			option, err := blockOption(coap.OptionBlock1, final)
 			if err != nil {
+				s.recordBlock(Block1, BlockError)
 				plan.early = &Response{Code: coap.CodeBadRequest}
 				return plan
 			}
 			if b.More {
+				s.recordBlock(Block1, BlockContinue)
 				plan.early = &Response{Code: coap.CodeContinue, Options: []coap.Option{option}}
 				return plan
 			}
 			st.msg.Payload = full
 			plan.finalBlock1 = &option
+			plan.finalBlock1Num = b.Num
+			s.recordBlock(Block1, BlockComplete)
 		}
 	}
 	h := s.match(m.Code, path)
@@ -120,8 +145,10 @@ func (s *Server) planRequest(st *requestExchange) requestPlan {
 		if obs, hasObs := m.Observe(); hasObs {
 			if obs == coap.ObserveDeregister {
 				s.cancelObserver(st.sess, m.Token, path)
+			} else if !s.addObserver(st.sess, m.Token, path) {
+				plan.early = &Response{Code: coap.CodeServiceUnavailable}
+				return plan
 			} else {
-				s.addObserver(st.sess, m.Token, path)
 				plan.observeRegister = true
 			}
 		}
@@ -209,6 +236,7 @@ func (st *requestExchange) respondDeferred(resp Response) error {
 // ACK when no empty ACK was sent, otherwise a separate CON response.
 func (st *requestExchange) deliver(resp Response) {
 	out := st.srv.finalizeResponse(st.msg, st.plan, resp)
+	st.srv.rememberCompletedBlock1(st, out)
 	st.mu.Lock()
 	if st.finished {
 		st.mu.Unlock()
@@ -248,6 +276,7 @@ func (st *requestExchange) deliver(resp Response) {
 // a single NON response with a fresh message id.
 func (st *requestExchange) sendSeparate(resp Response) error {
 	out := st.srv.finalizeResponse(st.msg, st.plan, resp)
+	st.srv.rememberCompletedBlock1(st, out)
 	typ := coap.Confirmable
 	if !st.confirmable {
 		typ = coap.NonConfirmable
@@ -262,7 +291,7 @@ func (st *requestExchange) sendSeparate(resp Response) error {
 		}
 		return st.sess.Send(msg)
 	}
-	switch st.srv.sendConfirmable(st.srv.baseContext(), st.sess, msg) {
+	switch st.srv.sendConfirmable(st.srv.baseContext(), st.sess, msg, RetransmitResponse) {
 	case outboundAcked, outboundTimeout:
 		return nil
 	case outboundReset:
@@ -337,7 +366,14 @@ func (s *Server) finalizeResponse(m coap.Message, plan requestPlan, resp Respons
 		resp.Code = coap.CodeContent
 	}
 	if m.Code == coap.CodeGET {
-		if b, ok, err := requestBlock(m, coap.OptionBlock2); ok {
+		b, requested, err := requestBlock(m, coap.OptionBlock2)
+		if !requested && err == nil && len(resp.Payload) > s.blockSize {
+			// A server may start a block-wise response on its own; without it a
+			// body larger than one datagram is undeliverable on a constrained link.
+			b = coap.Block{Num: 0, SizeExp: s.blockExp}
+			requested = true
+		}
+		if requested {
 			var chunk []byte
 			var option coap.Option
 			if err == nil {
@@ -353,6 +389,7 @@ func (s *Server) finalizeResponse(m coap.Message, plan requestPlan, resp Respons
 			} else {
 				resp.Payload = chunk
 				resp.Options = append(resp.Options, option)
+				s.recordBlock(Block2, BlockComplete)
 			}
 		}
 	}

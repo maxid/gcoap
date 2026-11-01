@@ -2,7 +2,7 @@ module github.com/maxid/gcoap
 
 go 1.27
 
-require github.com/maxid/gnety v0.0.0-20261030094618-a0202c4592ea
+require github.com/maxid/gnety v0.0.0-20261101091924-9df1f8681c89
 
 require (
 	github.com/pion/dtls/v2 v2.2.12 // indirect

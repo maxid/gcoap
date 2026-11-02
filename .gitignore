@@ -5,3 +5,11 @@
 .idea/
 .vscode/
 .DS_Store
+
+# build outputs — nothing compiled belongs in the repository (AGENTS.md §6)
+*.exe
+*.so
+*.dylib
+*.a
+*.prof
+coverage.*

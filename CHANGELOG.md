@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The metrics contract moved to `gcoap/hook`.** `Metrics`, `NoopMetrics` and every label
+  (`Result*`, `Retransmit*`, `Observe*`, `Block1`/`Block2`, block results) are defined there
+  and re-exported by the root package as aliases, so existing imports, names and interface
+  assertions are unchanged. `gcoap/hook` imports nothing from the root package.
+
+### Added
+
+- `hook.MetricsFuncs`: implement the five metrics methods with optional function fields; a
+  nil field is skipped.
+
 - Block1 upload state is bounded: `Config.MaxBlockUploads` (128) and
   `Config.MaxBlockPayload` (1 MiB, also checked against a declared Size1) limit
   the state and memory one misbehaving client can occupy, and

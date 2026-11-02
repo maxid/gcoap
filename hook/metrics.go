@@ -1,8 +1,13 @@
-package gcoap
+// Package hook is the extension contract of this package: the interfaces a consumer
+// implements to observe a server or a client.
+//
+// It exists as its own package so the extension surface is one visible directory instead of
+// a section of an implementation file. Nothing here imports the root package, so an
+// implementation cannot reach internals it is not supposed to see, and the root package
+// re-exports every name as an alias — existing code keeps using gcoap.Metrics.
+package hook
 
 import (
-	"context"
-	"errors"
 	"time"
 
 	"github.com/maxid/gnety/codec/coap"
@@ -105,118 +110,50 @@ func (NoopMetrics) Observe(string) {}
 // Block implements Metrics.
 func (NoopMetrics) Block(string, string) {}
 
-// resultOf maps a response code to the coarse exchange result label.
-func resultOf(code coap.Code) string {
-	switch code.Class() {
-	case 2:
-		return ResultOK
-	case 4:
-		return ResultClientError
-	case 5:
-		return ResultServerError
-	default:
-		return ResultError
+// MetricsFuncs implements Metrics with optional function fields, so a consumer implements
+// only the events it cares about instead of five methods. A nil field is skipped.
+//
+// The field names carry a Func suffix because a field and a method cannot share a name on
+// one type.
+type MetricsFuncs struct {
+	ExchangeFunc   func(method coap.Code, result string, d time.Duration)
+	DedupFunc      func()
+	RetransmitFunc func(kind string)
+	ObserveFunc    func(event string)
+	BlockFunc      func(direction, result string)
+}
+
+// Exchange calls ExchangeFunc when it is set.
+func (m MetricsFuncs) Exchange(method coap.Code, result string, d time.Duration) {
+	if m.ExchangeFunc != nil {
+		m.ExchangeFunc(method, result, d)
 	}
 }
 
-// resultOfError maps a failed exchange to the coarse result label.
-func resultOfError(err error) string {
-	if errors.Is(err, context.DeadlineExceeded) {
-		return ResultTimeout
-	}
-	return ResultError
-}
-
-// block1Result maps a Block1 failure to the metric label.
-func block1Result(err error) string {
-	var protocol *block1Error
-	if !errors.As(err, &protocol) {
-		return BlockError
-	}
-	switch protocol.code {
-	case coap.CodeRequestEntityTooLarge:
-		return BlockTooLarge
-	case coap.CodeServiceUnavailable:
-		return BlockTooMany
-	case coap.CodeRequestEntityIncomplete:
-		return BlockSequence
-	default:
-		return BlockError
+// Dedup calls DedupFunc when it is set.
+func (m MetricsFuncs) Dedup() {
+	if m.DedupFunc != nil {
+		m.DedupFunc()
 	}
 }
 
-// serverMetric records one server-side event, skipping a nil hook.
-func (s *Server) serverMetric() Metrics {
-	if s.metrics == nil {
-		return nil
-	}
-	return s.metrics
-}
-
-// recordExchange reports one served exchange.
-func (s *Server) recordExchange(method coap.Code, code coap.Code, d time.Duration) {
-	if m := s.serverMetric(); m != nil {
-		m.Exchange(method, resultOf(code), d)
+// Retransmit calls RetransmitFunc when it is set.
+func (m MetricsFuncs) Retransmit(kind string) {
+	if m.RetransmitFunc != nil {
+		m.RetransmitFunc(kind)
 	}
 }
 
-// recordDedup reports one deduplication hit.
-func (s *Server) recordDedup() {
-	if m := s.serverMetric(); m != nil {
-		m.Dedup()
+// Observe calls ObserveFunc when it is set.
+func (m MetricsFuncs) Observe(event string) {
+	if m.ObserveFunc != nil {
+		m.ObserveFunc(event)
 	}
 }
 
-// recordRetransmit reports one server retransmission.
-func (s *Server) recordRetransmit(kind string) {
-	if m := s.serverMetric(); m != nil {
-		m.Retransmit(kind)
-	}
-}
-
-// recordObserve reports one observe event.
-func (s *Server) recordObserve(event string) {
-	if m := s.serverMetric(); m != nil {
-		m.Observe(event)
-	}
-}
-
-// recordBlock reports one block-wise outcome.
-func (s *Server) recordBlock(direction, result string) {
-	if m := s.serverMetric(); m != nil {
-		m.Block(direction, result)
-	}
-}
-
-// recordExchange reports one client exchange.
-func (c *Client) recordExchange(method coap.Code, code coap.Code, err error, d time.Duration) {
-	if c.metrics == nil {
-		return
-	}
-	result := resultOf(code)
-	if err != nil {
-		result = resultOfError(err)
-	}
-	c.metrics.Exchange(method, result, d)
-}
-
-// recordRetransmit reports one client retransmission.
-func (c *Client) recordRetransmit(kind string) {
-	if c.metrics != nil {
-		c.metrics.Retransmit(kind)
-	}
-}
-
-// recordBlock reports one client block-wise outcome.
-func (c *Client) recordBlock(direction, result string) {
-	if c.metrics != nil {
-		c.metrics.Block(direction, result)
-	}
-}
-
-// recordObserve reports one client observe event.
-func (c *Client) recordObserve(event string) {
-	if c.metrics != nil {
-		c.metrics.Observe(event)
+// Block calls BlockFunc when it is set.
+func (m MetricsFuncs) Block(direction, result string) {
+	if m.BlockFunc != nil {
+		m.BlockFunc(direction, result)
 	}
 }

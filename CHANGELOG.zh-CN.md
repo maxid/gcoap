@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+### 变更
+
+- **指标契约移到 `gcoap/hook`。** `Metrics`、`NoopMetrics` 与全部标签（`Result*`、
+  `Retransmit*`、`Observe*`、`Block1`/`Block2`、分块结果）定义在该包，根包以类型别名重新导出，
+  已有的 import、名称与接口断言全部照旧。`gcoap/hook` 不 import 根包。
+
+### 新增
+
+- `hook.MetricsFuncs`：用可选函数字段实现五个指标方法，nil 字段直接跳过。
+
 - Block1 上传状态有界：`Config.MaxBlockUploads`（128）与 `Config.MaxBlockPayload`（1 MiB，同时校验声明的 Size1）限制单个异常客户端能占用的状态与内存，`Config.BlockIdleTimeout`（60s）回收空闲上传与完成响应。改变 method/URI/块大小或乱序的块回 4.08；超限回 4.13；超过并发上限的新上传回 5.03。重复块重放 2.31 且不重复追加；带新 message id 的重复最后一块重放缓存的最终响应。
 - 大于 `Config.BlockSize`（1024）的 GET 响应即使请求未带 Block2 选项也会切片，使超过 MTU 的响应在受限链路上可送达。
 - `Client.Do` 并发安全：去掉全局串行锁，分配 message id 时避让在途交换，每个调用方保有独立 token。`ClientConfig.MaxResponseSize`（1 MiB）限制 Block2 组装，超出返回 `ErrResponseTooLarge`。

@@ -492,3 +492,88 @@ func parsePath(m coap.Message) (path string, query url.Values) {
 	}
 	return path, query
 }
+
+// resultOf maps a response code to the coarse exchange result label.
+func resultOf(code coap.Code) string {
+	switch code.Class() {
+	case 2:
+		return ResultOK
+	case 4:
+		return ResultClientError
+	case 5:
+		return ResultServerError
+	default:
+		return ResultError
+	}
+}
+
+// resultOfError maps a failed exchange to the coarse result label.
+func resultOfError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ResultTimeout
+	}
+	return ResultError
+}
+
+// block1Result maps a Block1 failure to the metric label.
+func block1Result(err error) string {
+	var protocol *block1Error
+	if !errors.As(err, &protocol) {
+		return BlockError
+	}
+	switch protocol.code {
+	case coap.CodeRequestEntityTooLarge:
+		return BlockTooLarge
+	case coap.CodeServiceUnavailable:
+		return BlockTooMany
+	case coap.CodeRequestEntityIncomplete:
+		return BlockSequence
+	default:
+		return BlockError
+	}
+}
+
+// serverMetric records one server-side event, skipping a nil hook.
+func (s *Server) serverMetric() Metrics {
+	if s.metrics == nil {
+		return nil
+	}
+	return s.metrics
+}
+
+// recordExchange reports one served exchange.
+func (s *Server) recordExchange(method coap.Code, code coap.Code, d time.Duration) {
+	if m := s.serverMetric(); m != nil {
+		m.Exchange(method, resultOf(code), d)
+	}
+}
+
+// recordDedup reports one deduplication hit.
+func (s *Server) recordDedup() {
+	if m := s.serverMetric(); m != nil {
+		m.Dedup()
+	}
+}
+
+// recordRetransmit reports one server retransmission.
+func (s *Server) recordRetransmit(kind string) {
+	if m := s.serverMetric(); m != nil {
+		m.Retransmit(kind)
+	}
+}
+
+// recordObserve reports one observe event.
+func (s *Server) recordObserve(event string) {
+	if m := s.serverMetric(); m != nil {
+		m.Observe(event)
+	}
+}
+
+// recordBlock reports one block-wise outcome.
+func (s *Server) recordBlock(direction, result string) {
+	if m := s.serverMetric(); m != nil {
+		m.Block(direction, result)
+	}
+}
+
+// recordExchange reports one client exchange.

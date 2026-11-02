@@ -108,6 +108,30 @@ go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
 `NoopMetrics` is the explicit no-op. Labels never carry a token, URI path or
 peer address.
 
+## Extension points
+
+The observability contract lives in [`hook`](hook/): `Metrics` and the coarse labels it
+reports (`Result*`, `Retransmit*`, `Observe*`, `Block1`/`Block2` and the block results). The
+root package re-exports every one of them as an alias, so the two import paths are the same
+types and existing code needs no change:
+
+```go
+var m gcoap.Metrics = hook.MetricsFuncs{RecordExchange: nil} // literally the same type
+```
+
+`hook.MetricsFuncs` implements the five methods with optional function fields — set only the
+events you care about, and nil fields are skipped. `hook.NoopMetrics` drops everything.
+
+Handlers stay where they are (`Handler` is a plain func type with the server's
+`Request`/`Response`), and `Server` exposes its own routing surface: those two are the
+package's main extension points, and the metrics hook only observes them.
+
+To make extensions switchable at run time — start, stop, inspect — wrap the server in a
+plugin registry: `gplugin.NewRegistry(server)` from
+[`gplugin`](https://github.com/maxid/gplugin) gives named plugins, a three-state lifecycle,
+an observer and per-plugin start/stop; this package only defines what a plugin can plug
+into.
+
 ## Interoperability tests
 
 The tests against an independent CoAP implementation

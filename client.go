@@ -659,3 +659,35 @@ func (c *Client) ackConfirmable(m coap.Message) {
 	ack := coap.Message{Type: coap.Acknowledgement, Code: coap.CodeEmpty, MessageID: m.MessageID}
 	_ = c.conn.Send(ack)
 }
+
+func (c *Client) recordExchange(method coap.Code, code coap.Code, err error, d time.Duration) {
+	if c.metrics == nil {
+		return
+	}
+	result := resultOf(code)
+	if err != nil {
+		result = resultOfError(err)
+	}
+	c.metrics.Exchange(method, result, d)
+}
+
+// recordRetransmit reports one client retransmission.
+func (c *Client) recordRetransmit(kind string) {
+	if c.metrics != nil {
+		c.metrics.Retransmit(kind)
+	}
+}
+
+// recordBlock reports one client block-wise outcome.
+func (c *Client) recordBlock(direction, result string) {
+	if c.metrics != nil {
+		c.metrics.Block(direction, result)
+	}
+}
+
+// recordObserve reports one client observe event.
+func (c *Client) recordObserve(event string) {
+	if c.metrics != nil {
+		c.metrics.Observe(event)
+	}
+}

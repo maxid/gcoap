@@ -93,6 +93,26 @@ go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
 `Dedup()`、`Retransmit(kind)`、`Observe(event)`、`Block(direction, result)`。nil 钩子零成本，
 `NoopMetrics` 是显式空实现；标签不携带 token、URI path 或对端地址。
 
+## 扩展点
+
+可观测性契约在 [`hook`](hook/)：`Metrics` 与它上报的粗粒度标签（`Result*`、`Retransmit*`、
+`Observe*`、`Block1`/`Block2` 与分块结果）。根包把它们全部以类型别名重新导出，因此两条 import
+路径是同一种类型，已有代码不用改：
+
+```go
+var m gcoap.Metrics = hook.MetricsFuncs{} // 同一个类型
+```
+
+`hook.MetricsFuncs` 用可选函数字段实现这五个方法——只设你关心的事件，nil 字段直接跳过；
+`hook.NoopMetrics` 全部丢弃。
+
+Handler 仍留在根包（`Handler` 就是带服务端 `Request`/`Response` 的普通 func 类型），`Server`
+自己暴露路由面：这两者才是本包的主扩展点，metrics 钩子只做观测。
+
+要让扩展在运行期可开关、可观测，把服务端套进插件注册表：
+[`gplugin`](https://github.com/maxid/gplugin) 的 `gplugin.NewRegistry(server)` 提供具名插件、
+三态生命周期、观察者与单品启停；本包只定义"插件能插到哪里"。
+
 ## 互操作测试
 
 针对独立 CoAP 实现（`github.com/plgd-dev/go-coap/v3`）的测试放在独立的

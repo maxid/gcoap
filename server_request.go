@@ -36,6 +36,9 @@ type serverRequest struct {
 	// events receives the first response of the exchange (or a reset); a
 	// concurrent reader consumes exactly one value.
 	events chan serverResponse
+	// obs, when set, makes this an observation: the first response goes to
+	// events, every later one to the observation's callback.
+	obs *ServerObservation
 }
 
 type serverResponse struct {
@@ -102,6 +105,10 @@ func (s *Server) deliverServerResponse(sess *gnety.Session, m coap.Message) bool
 	req := s.serverRequestByToken(peerIdentity(sess), string(m.Token))
 	if req == nil {
 		return false
+	}
+	if req.obs != nil {
+		req.obs.deliver(ClientResponse{Code: m.Code, Options: m.Options, Payload: m.Payload})
+		return true
 	}
 	select {
 	case req.events <- serverResponse{msg: m}:
@@ -349,4 +356,12 @@ func newServerToken() ([]byte, error) {
 		return nil, err
 	}
 	return token, nil
+}
+
+// serverRequestCount reports how many server-initiated requests are pending. It is
+// only used by tests to assert that an exchange released its state.
+func (s *Server) serverRequestCount() int {
+	s.reqMu.Lock()
+	defer s.reqMu.Unlock()
+	return len(s.requests)
 }

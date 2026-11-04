@@ -392,8 +392,14 @@ func (s *Server) Stop(ctx context.Context) error {
 	cancel()
 	s.dedup.reset()
 	s.reqMu.Lock()
+	pending := s.requests
 	s.requests = make(map[string]*serverRequest)
 	s.reqMu.Unlock()
+	for _, req := range pending {
+		if req.obs != nil {
+			req.obs.stop()
+		}
+	}
 	s.blockMu.Lock()
 	s.uploads = make(map[string]*upload)
 	s.completed = make(map[string]*completedUpload)

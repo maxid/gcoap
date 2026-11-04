@@ -363,3 +363,19 @@ func TestTimingConfigValidation(t *testing.T) {
 		t.Fatalf("maxRetransmit = %d, want 0", params.maxRetransmit)
 	}
 }
+
+// sendTo writes one datagram from the peer to addr.
+func (p *testPeer) sendTo(t *testing.T, addr string, msg coap.Message) {
+	t.Helper()
+	raw, err := msg.Marshal()
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	target, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		t.Fatalf("resolve %s: %v", addr, err)
+	}
+	if _, err := p.conn.WriteToUDP(raw, target); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+}

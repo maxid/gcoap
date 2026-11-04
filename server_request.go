@@ -162,9 +162,6 @@ func (s *Server) deliverServerReset(sess *gnety.Session, m coap.Message) bool {
 // rejected with ErrRequestTooLarge, because Block1 from the server side is not
 // implemented yet.
 func (s *Server) DoTo(ctx context.Context, addr string, req ClientRequest) (ClientResponse, error) {
-	if len(req.Payload) > DefaultClientBlockSize {
-		return ClientResponse{}, ErrRequestTooLarge
-	}
 	sess := s.sessionByAddr(addr)
 	if sess == nil {
 		return ClientResponse{}, fmt.Errorf("%w: %s", ErrNoSession, addr)
@@ -173,17 +170,14 @@ func (s *Server) DoTo(ctx context.Context, addr string, req ClientRequest) (Clie
 	if err != nil {
 		return ClientResponse{}, err
 	}
+	if len(req.Payload) > blockSizeOf(defaultUploadExp) {
+		return s.uploadServerRequest(ctx, sess, req, token)
+	}
 	msg, err := s.buildServerMessage(req, token, nil)
 	if err != nil {
 		return ClientResponse{}, err
 	}
-	out := &serverRequest{peer: peerIdentity(sess), token: string(token), mid: msg.MessageID, events: make(chan serverResponse, 1)}
-	if !s.registerServerRequest(out) {
-		return ClientResponse{}, ErrTooManyServerRequests
-	}
-	defer s.unregisterServerRequest(out.token)
-
-	resp, err := s.exchangeServerRequest(ctx, sess, msg, out)
+	resp, err := s.roundTrip(ctx, sess, msg)
 	if err != nil {
 		return ClientResponse{}, err
 	}
@@ -286,12 +280,7 @@ func (s *Server) collectServerResponse(ctx context.Context, sess *gnety.Session,
 		if err != nil {
 			return ClientResponse{}, err
 		}
-		next := &serverRequest{peer: peerIdentity(sess), token: string(token), mid: msg.MessageID, events: make(chan serverResponse, 1)}
-		if !s.registerServerRequest(next) {
-			return ClientResponse{}, ErrTooManyServerRequests
-		}
-		partial, err := s.exchangeServerRequest(ctx, sess, msg, next)
-		s.unregisterServerRequest(next.token)
+		partial, err := s.roundTrip(ctx, sess, msg)
 		if err != nil {
 			return ClientResponse{}, err
 		}
@@ -306,6 +295,99 @@ func (s *Server) collectServerResponse(ctx context.Context, sess *gnety.Session,
 		more = ok && block.More
 	}
 	return out, nil
+}
+
+// defaultUploadExp is the block size exponent a server-initiated request body is
+// uploaded with: 1024-byte blocks, the largest RFC 7959 can express.
+const defaultUploadExp uint8 = 6
+
+// roundTrip sends one message over the session and returns the response that
+// belongs to its token. The request table entry lives only as long as the
+// exchange.
+func (s *Server) roundTrip(ctx context.Context, sess *gnety.Session, msg coap.Message) (coap.Message, error) {
+	out := &serverRequest{peer: peerIdentity(sess), token: string(msg.Token), mid: msg.MessageID, events: make(chan serverResponse, 1)}
+	if !s.registerServerRequest(out) {
+		return coap.Message{}, ErrTooManyServerRequests
+	}
+	defer s.unregisterServerRequest(out.token)
+	return s.exchangeServerRequest(ctx, sess, msg, out)
+}
+
+// uploadServerRequest sends a request body with Block1 the way a client does
+// (RFC 7959 section 2.5): block 0 announces Size1, every following block waits for
+// 2.31 Continue, and a smaller size exponent from the peer downgrades the rest of
+// the transfer without skipping a byte. An early final or error response ends the
+// upload and is returned to the caller.
+func (s *Server) uploadServerRequest(ctx context.Context, sess *gnety.Session, req ClientRequest, token []byte) (ClientResponse, error) {
+	if len(req.Payload) > DefaultMaxRequestSize {
+		return ClientResponse{}, ErrRequestTooLarge
+	}
+	szx := defaultUploadExp
+	body := len(req.Payload)
+	offset := 0
+	num := uint32(0)
+	for {
+		size := blockSizeOf(szx)
+		if num > 0x0fffff {
+			return ClientResponse{}, fmt.Errorf("%w: block number overflow", ErrBlockSequence)
+		}
+		if offset >= body {
+			return ClientResponse{}, fmt.Errorf("%w: no bytes left for block %d", ErrBlockSequence, num)
+		}
+		end := offset + size
+		if end > body {
+			end = body
+		}
+		block := coap.Block{Num: num, More: end < body, SizeExp: szx}
+		msg, err := s.buildServerMessage(req, token, nil)
+		if err != nil {
+			return ClientResponse{}, err
+		}
+		msg.Payload = req.Payload[offset:end]
+		if err := msg.SetBlock1(block); err != nil {
+			return ClientResponse{}, err
+		}
+		msg.SetSize1(uint32(body))
+		resp, err := s.roundTrip(ctx, sess, msg)
+		if err != nil {
+			return ClientResponse{}, err
+		}
+		if limit, ok := resp.Size1(); ok && int(limit) < body {
+			s.recordBlock(Block1, BlockTooLarge)
+			return ClientResponse{}, fmt.Errorf("%w: peer accepts %d of %d bytes", ErrRequestTooLarge, limit, body)
+		}
+		if !block.More {
+			if resp.Code == coap.CodeContinue {
+				s.recordBlock(Block1, BlockSequence)
+				return ClientResponse{}, fmt.Errorf("%w: peer continued after the final block", ErrBlockSequence)
+			}
+			s.recordBlock(Block1, BlockComplete)
+			return s.collectServerResponse(ctx, sess, req, token, resp)
+		}
+		if resp.Code != coap.CodeContinue {
+			// The peer answered before the body was complete; its answer belongs
+			// to the caller.
+			return ClientResponse{Code: resp.Code, Options: resp.Options, Payload: resp.Payload}, nil
+		}
+		s.recordBlock(Block1, BlockContinue)
+		next, ok, err := requestBlock(resp, coap.OptionBlock1)
+		if err != nil {
+			return ClientResponse{}, err
+		}
+		if !ok {
+			num++
+			offset = end
+			continue
+		}
+		if next.Num != num {
+			return ClientResponse{}, fmt.Errorf("%w: peer acknowledged block %d of block %d", ErrBlockSequence, next.Num, num)
+		}
+		if next.SizeExp < szx {
+			szx = next.SizeExp
+		}
+		offset = end
+		num = uint32(offset / blockSizeOf(szx))
+	}
 }
 
 // buildServerMessage assembles one request datagram for a session.

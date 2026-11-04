@@ -27,3 +27,32 @@ jobs:
       - name: Interop vet
         working-directory: interop
         run: go vet ./...
+
+  # The server and the client are concurrent programs: exchange state, the
+  # deduplication cache, the observer table and the client's reader all run on
+  # their own goroutines. Ubuntu only — one platform runs the detector
+  # meaningfully, and three would triple the slowest job in the matrix.
+  race:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+      - name: Test with the race detector
+        run: go test -race ./...
+
+  # A short fuzz run over the datagram decoder, the one parser a peer controls:
+  # every datagram the server and the client receive goes through it. Ten seconds
+  # catches the cheap crashes (index out of range, a length field believed into a
+  # large allocation) without turning CI into a fuzzing farm; a longer run is a
+  # local or nightly job.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+      - name: Fuzz the datagram decoder
+        run: go test -run '^$' -fuzz FuzzDecodeMessage -fuzztime 10s .

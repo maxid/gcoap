@@ -1,9 +1,11 @@
 package gcoap
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -211,16 +213,120 @@ func TestServerRequestAssemblesBlock2(t *testing.T) {
 	}
 }
 
-// TestServerRequestRejectsLargeBody refuses a request body Block1 would be needed
-// for: the server side does not implement it yet.
-func TestServerRequestRejectsLargeBody(t *testing.T) {
-	f := faultTestServer(t, Config{})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_, err := f.DoTo(ctx, "127.0.0.1:1", ClientRequest{
-		Code: coap.CodePUT, Path: "/3303/0/5700", Payload: make([]byte, DefaultClientBlockSize+1),
+// block1Option encodes a Block1 option value for a 2.31 answer.
+func block1Option(block coap.Block) coap.Option {
+	value, err := block.Encode()
+	if err != nil {
+		panic(err)
+	}
+	return coap.Option{Number: coap.OptionBlock1, Value: value}
+}
+
+// TestServerRequestUploadsBlock1 sends a body larger than one block: every
+// non-final block waits for 2.31 Continue, and the final one carries the response.
+func TestServerRequestUploadsBlock1(t *testing.T) {
+	f := faultTestServer(t, Config{AckTimeout: 100 * time.Millisecond, MaxRetransmit: 2})
+	var mu sync.Mutex
+	var seen []coap.Message
+	peer := newTestPeer(t, func(_ *testPeer, req coap.Message) []coap.Message {
+		if string(req.Token) == "warm" {
+			return []coap.Message{{Type: coap.Acknowledgement, Code: coap.CodeContent, MessageID: req.MessageID, Token: req.Token}}
+		}
+		mu.Lock()
+		seen = append(seen, req)
+		mu.Unlock()
+		if block, ok := req.Block1(); ok && block.More {
+			return []coap.Message{{
+				Type: coap.Acknowledgement, Code: coap.CodeContinue, MessageID: req.MessageID,
+				Token: append([]byte(nil), req.Token...), Options: []coap.Option{block1Option(block)},
+			}}
+		}
+		return []coap.Message{{Type: coap.Acknowledgement, Code: coap.CodeChanged, MessageID: req.MessageID, Token: append([]byte(nil), req.Token...)}}
 	})
-	if !errors.Is(err, ErrRequestTooLarge) {
-		t.Fatalf("DoTo = %v, want ErrRequestTooLarge", err)
+	warmSession(t, f.Server, peer)
+
+	body := append(bytes.Repeat([]byte{'x'}, 2048), []byte("tail")...) // three blocks: 1024, 1024, 4
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	resp, err := f.DoTo(ctx, peer.Addr(), ClientRequest{Code: coap.CodePUT, Path: "/3303/0/5700", Payload: body})
+	if err != nil {
+		t.Fatalf("DoTo: %v", err)
+	}
+	if resp.Code != coap.CodeChanged {
+		t.Fatalf("response = %s, want 2.04", resp.Code)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 3 {
+		t.Fatalf("blocks sent = %d, want 3", len(seen))
+	}
+	var assembled []byte
+	for i, msg := range seen {
+		block, ok := msg.Block1()
+		if !ok {
+			t.Fatalf("block %d carries no Block1 option", i)
+		}
+		if block.Num != uint32(i) {
+			t.Fatalf("block %d carries number %d", i, block.Num)
+		}
+		if size1, ok := msg.Size1(); !ok || int(size1) != len(body) {
+			t.Fatalf("block %d Size1 = %d (present %v), want %d", i, size1, ok, len(body))
+		}
+		assembled = append(assembled, msg.Payload...)
+	}
+	if !bytes.Equal(assembled, body) {
+		t.Fatalf("peer received %d bytes, want %d", len(assembled), len(body))
+	}
+}
+
+// TestServerRequestUploadsBlock1Downgraded adopts a smaller block size the peer
+// asks for after block 0, recomputing the block number without skipping a byte.
+func TestServerRequestUploadsBlock1Downgraded(t *testing.T) {
+	f := faultTestServer(t, Config{AckTimeout: 100 * time.Millisecond, MaxRetransmit: 2})
+	var mu sync.Mutex
+	var seen []coap.Message
+	peer := newTestPeer(t, func(_ *testPeer, req coap.Message) []coap.Message {
+		if string(req.Token) == "warm" {
+			return []coap.Message{{Type: coap.Acknowledgement, Code: coap.CodeContent, MessageID: req.MessageID, Token: req.Token}}
+		}
+		mu.Lock()
+		seen = append(seen, req)
+		mu.Unlock()
+		block, ok := req.Block1()
+		if ok && block.More {
+			// Ask for 256-byte blocks from the second block on.
+			return []coap.Message{{
+				Type: coap.Acknowledgement, Code: coap.CodeContinue, MessageID: req.MessageID,
+				Token: append([]byte(nil), req.Token...), Options: []coap.Option{block1Option(coap.Block{Num: block.Num, SizeExp: 4})},
+			}}
+		}
+		return []coap.Message{{Type: coap.Acknowledgement, Code: coap.CodeChanged, MessageID: req.MessageID, Token: append([]byte(nil), req.Token...)}}
+	})
+	warmSession(t, f.Server, peer)
+
+	body := bytes.Repeat([]byte{'y'}, 2048) // 1024 + 4*256
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if _, err := f.DoTo(ctx, peer.Addr(), ClientRequest{Code: coap.CodePUT, Path: "/3303/0/5700", Payload: body}); err != nil {
+		t.Fatalf("DoTo: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 5 {
+		t.Fatalf("blocks sent = %d, want 5", len(seen))
+	}
+	if first, _ := seen[0].Block1(); first.SizeExp != defaultUploadExp {
+		t.Fatalf("block 0 size exponent = %d, want %d", first.SizeExp, defaultUploadExp)
+	}
+	for i, msg := range seen[1:] {
+		block, _ := msg.Block1()
+		if block.SizeExp != 4 || len(msg.Payload) != 256 {
+			t.Fatalf("block %d: size exponent %d, %d bytes, want 4 and 256", i+1, block.SizeExp, len(msg.Payload))
+		}
+		if want := uint32(4 + i); block.Num != want {
+			t.Fatalf("block %d carries number %d, want %d (block numbers count in the smaller size)", i+1, block.Num, want)
+		}
 	}
 }

@@ -14,6 +14,11 @@
 
 ### 新增
 
+- `benchmark_test.go` 与 `docs/PERFORMANCE.md`（含中文版）：回环 UDP 上一次 confirmable
+  往返、一次 Block2 下载、一条 non-confirmable/confirmable observe 通知的代价，附机器、边界
+  与可直接照抄的复现命令。按协议库基线，基准不进 `go test ./...`、不进 CI，数字是基线而非
+  目标。
+
 - 两个可运行示例，每个都是自包含的 `main`，各自在回环端口上起服务端：
   `examples/server-client` 演示一次 confirmable 往返、没人注册的路径得到的 4.04，以及可被
   外部 CoAP 客户端查询的 `-serve` 模式；`examples/observe-client` 注册观察、打印随后到达的

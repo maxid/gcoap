@@ -97,6 +97,13 @@ go run ./examples/observe-client
 run it and what it prints; `-serve` turns either into a server an external CoAP
 client can query.
 
+## Performance
+
+Numbers for one round trip, a Block2 download and an observe notification — with
+the machine, the caveats and the reproduction command — are in
+[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md). They are a loopback baseline, not a
+throughput promise.
+
 ## Limits and metrics
 
 | Field | Default | Meaning |

@@ -21,7 +21,7 @@
 - [x] Metrics hooks (exchange, dedup, retransmit, observe, block)
 - [x] Independent interoperability tests (plgd-dev/go-coap, UDP and DTLS,
       both directions)
+- [x] Benchmarks over real loopback UDP and a `docs/PERFORMANCE.md` with the
+      numbers, the reproduction command and the machine they were taken on
 - [ ] Weak-network fault-injection matrix
 - [ ] Per-peer observer and upload quotas
-- [ ] Benchmarks over real loopback UDP and a `docs/PERFORMANCE.md` with the
-      numbers, the reproduction command and the machine they were taken on

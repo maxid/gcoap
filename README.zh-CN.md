@@ -83,6 +83,11 @@ go run ./examples/observe-client
 [`examples/README.md`](examples/README.zh-CN.md)；加 `-serve` 可以把任一示例变成一个
 外部 CoAP 客户端可以直接查询的服务端。
 
+## 性能
+
+一次往返、一次 Block2 下载与一条 observe 通知的实测数字（含机器、边界与复现命令）见
+[`docs/PERFORMANCE.zh-CN.md`](docs/PERFORMANCE.zh-CN.md)。它是回环基线，不是吞吐承诺。
+
 ## 限额与指标
 
 | 字段 | 默认 | 含义 |

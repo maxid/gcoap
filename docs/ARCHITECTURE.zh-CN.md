@@ -205,6 +205,7 @@ interim 的空 ACK（永远不会被当成最终响应）。non-confirmable 请�
 | Fuzz | `codec_fuzz_test.go` | 对端可控的数据报不会让解码器 panic、不会做出超过输入规模的分配、不会破坏 `encode(decode(x))` 的幂等性 |
 | 互操作 | `interop/`（独立模块） | 对 `plgd-dev/go-coap/v3` 的双向互通，UDP 与 DTLS，含 Block1、Block2 与观察 |
 | 示例 | `examples/` | 文档里给出的 API 能编译能跑，`-serve` 留下一个外部客户端可查询的服务端 |
+| 基准 | `benchmark_test.go` | 回环 UDP 上一次往返、一次 Block2 下载、一条通知的代价；手工运行，数字记在 `PERFORMANCE.md` |
 | CI | `.github/workflows/ci.yml` | 三个 OS 的 `test`，Linux 上的 `race` 与短时 `fuzz` |
 
 ## 已知差距
@@ -212,4 +213,5 @@ interim 的空 ACK（永远不会被当成最终响应）。non-confirmable 请�
 - per-peer 的 observer 与上传配额（现在限额是全局的）、弱网故障注入矩阵 —— 都记在 `../ROADMAP.md`。
 - Block2 没有表示快照（ETag/If-Match），变化的资源可能在序列中途被拼接。
 - `hook.ObserveExpired` 与 `hook.BlockExpired` 已定义，但没有代码路径发出它们。
-- 还没有 benchmark 与 `PERFORMANCE.md`：库目前不做性能承诺。
+- `PERFORMANCE.md` 里的数字只是一台笔记本上的回环基线：不对真实网络或网关做承诺，每次请求的
+  分配也没有优化。

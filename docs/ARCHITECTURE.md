@@ -234,6 +234,7 @@ are called outside the library's locks and must not block; a nil hook costs noth
 | Fuzz | `codec_fuzz_test.go` | a peer-controlled datagram cannot panic the decoder, makes it allocate beyond the input, or break `encode(decode(x))` idempotency |
 | Interop | `interop/` (own module) | both directions against `plgd-dev/go-coap/v3` over UDP and DTLS, including Block1, Block2 and observe |
 | Examples | `examples/` | the advertised API compiles and runs, and `-serve` keeps a server an external client can query |
+| Benchmarks | `benchmark_test.go` | the cost of a round trip, a Block2 download and a notification over loopback UDP; run manually, recorded in `PERFORMANCE.md` |
 | CI | `.github/workflows/ci.yml` | `test` on three OSes, `race` and a short `fuzz` run on Linux |
 
 ## Known gaps
@@ -243,4 +244,5 @@ are called outside the library's locks and must not block; a nil hook costs noth
 - Block2 has no representation snapshot (ETag/If-Match), so a changing resource can be
   spliced mid-sequence.
 - `hook.ObserveExpired` and `hook.BlockExpired` are defined but no code path emits them.
-- No benchmark and no `PERFORMANCE.md`: the library makes no performance claim yet.
+- The numbers in `PERFORMANCE.md` are one loopback baseline on one laptop: no claim about real
+  networks or gateways, and per-request allocation is not optimized.

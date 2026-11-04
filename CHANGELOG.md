@@ -13,6 +13,12 @@
 
 ### Added
 
+- `benchmark_test.go` and `docs/PERFORMANCE.md` (with its Chinese counterpart): the cost of a
+  confirmable round trip, a Block2 download and a non-confirmable/confirmable observe
+  notification over loopback UDP, measured on one machine with the caveats and the exact
+  reproduction commands. Benchmarks stay out of `go test ./...` and out of CI, as the
+  protocol-library baseline requires, and the numbers are a baseline rather than a target.
+
 - Two runnable examples, each a self-contained `main` that starts its own server on a
   loopback port: `examples/server-client` shows a confirmable round trip, the 4.04 an
   unknown route produces and a `-serve` mode an external CoAP client can query;

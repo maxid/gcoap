@@ -13,6 +13,16 @@
 
 ### Added
 
+- `Config.MaxObserversPerPeer` (32) and `Config.MaxBlockUploadsPerPeer` (16) cap the
+  observer and Block1 upload slots one peer may hold, so a single peer can no longer
+  occupy the whole global table (`MaxObservers` 256, `MaxBlockUploads` 128). A
+  registration or upload beyond the per-peer cap is answered `5.03 Service
+  Unavailable`, the peer's existing observations and uploads keep working, and other
+  peers are unaffected; the quota is released when an observation, an upload or the
+  session ends. Zero keeps the defaults, and a per-peer cap at or above the global one
+  simply never binds. The peer is the transport peer identity deduplication already
+  uses, so a reconnect starts with a fresh quota.
+
 - `benchmark_test.go` and `docs/PERFORMANCE.md` (with its Chinese counterpart): the cost of a
   confirmable round trip, a Block2 download and a non-confirmable/confirmable observe
   notification over loopback UDP, measured on one machine with the caveats and the exact

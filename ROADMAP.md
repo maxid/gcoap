@@ -24,4 +24,4 @@
 - [x] Benchmarks over real loopback UDP and a `docs/PERFORMANCE.md` with the
       numbers, the reproduction command and the machine they were taken on
 - [ ] Weak-network fault-injection matrix
-- [ ] Per-peer observer and upload quotas
+- [x] Per-peer observer and upload quotas

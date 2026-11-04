@@ -14,6 +14,13 @@
 
 ### 新增
 
+- `Config.MaxObserversPerPeer`（32）与 `Config.MaxBlockUploadsPerPeer`（16）限制单个对端
+  能占的 observer 与 Block1 上传槽位，一个对端不再能吃满全局表（`MaxObservers` 256、
+  `MaxBlockUploads` 128）。超过 per-peer 上限的注册或上传回 `5.03 Service Unavailable`，
+  该对端已有的观察与上传继续工作，其他对端不受影响；观察、上传或会话结束时释放配额。
+  0 取默认值，per-peer 上限大于等于全局上限时不再额外生效。对端身份就是去重使用的传输
+  层对端身份，所以重连从头计。
+
 - `benchmark_test.go` 与 `docs/PERFORMANCE.md`（含中文版）：回环 UDP 上一次 confirmable
   往返、一次 Block2 下载、一条 non-confirmable/confirmable observe 通知的代价，附机器、边界
   与可直接照抄的复现命令。按协议库基线，基准不进 `go test ./...`、不进 CI，数字是基线而非

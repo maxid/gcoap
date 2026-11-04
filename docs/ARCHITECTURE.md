@@ -204,7 +204,9 @@ a new message id — which is what a client retransmission looks like after its 
 | Config field | Default | Meaning |
 |---|---|---|
 | `Config.MaxObservers` | 256 | observers across all resources |
+| `Config.MaxObserversPerPeer` | 32 | observers one peer may hold |
 | `Config.MaxBlockUploads` | 128 | Block1 uploads in progress |
+| `Config.MaxBlockUploadsPerPeer` | 16 | Block1 uploads in progress for one peer |
 | `Config.MaxBlockPayload` | 1 MiB | body of one Block1 upload |
 | `Config.BlockIdleTimeout` | 60s | idle upload and completed-response expiry |
 | `Config.BlockSize` | 1024 | Block2 slice size |
@@ -213,8 +215,13 @@ a new message id — which is what a client retransmission looks like after its 
 | `ClientConfig.MaxRequestSize` | 1 MiB | request body limit |
 | `ClientConfig.MaxResponseSize` | 1 MiB | assembled Block2 body limit |
 
-Every limit is **global**, not per peer: one peer can consume the whole observer or upload
-budget. Per-peer quotas are tracked in `../ROADMAP.md`.
+Observer and upload **slots** are capped twice: globally and per peer, so one peer cannot
+consume the whole table while the per-peer cap leaves room for a gateway with many
+resources. The two caps reject with `5.03`; nothing is evicted. The peer is
+`peerIdentity` — the same identity deduplication uses — so a reconnect counts as a new
+peer and starts with a fresh quota. Payload, body-size and dedup limits (`MaxBlockPayload`,
+`ClientConfig.MaxRequestSize`, `MaxExchanges`, …) remain global: they bound memory per
+object, not per peer.
 
 ## Observability
 
@@ -239,8 +246,9 @@ are called outside the library's locks and must not block; a nil hook costs noth
 
 ## Known gaps
 
-- Per-peer observer and upload quotas (limits are global today) and a weak-network
-  fault-injection matrix — both tracked in `../ROADMAP.md`.
+- A weak-network fault-injection matrix (loss, duplication, reordering, reconnect
+  combinations) is still a `../ROADMAP.md` item; today those paths are covered by
+  individual unit tests.
 - Block2 has no representation snapshot (ETag/If-Match), so a changing resource can be
   spliced mid-sequence.
 - `hook.ObserveExpired` and `hook.BlockExpired` are defined but no code path emits them.

@@ -177,7 +177,9 @@ interim 的空 ACK（永远不会被当成最终响应）。non-confirmable 请�
 | 配置项 | 默认 | 含义 |
 |---|---|---|
 | `Config.MaxObservers` | 256 | 全部资源的 observer 总数 |
+| `Config.MaxObserversPerPeer` | 32 | 单个对端可持有的 observer 数 |
 | `Config.MaxBlockUploads` | 128 | 在途 Block1 上传数 |
+| `Config.MaxBlockUploadsPerPeer` | 16 | 单个对端在途的 Block1 上传数 |
 | `Config.MaxBlockPayload` | 1 MiB | 单个 Block1 上传的体 |
 | `Config.BlockIdleTimeout` | 60s | 空闲上传与已完成响应的过期 |
 | `Config.BlockSize` | 1024 | Block2 切片大小 |
@@ -186,8 +188,11 @@ interim 的空 ACK（永远不会被当成最终响应）。non-confirmable 请�
 | `ClientConfig.MaxRequestSize` | 1 MiB | 请求体上限 |
 | `ClientConfig.MaxResponseSize` | 1 MiB | Block2 组装上限 |
 
-所有限额都是**全局**的，不是 per-peer：一个对端就能吃掉全部 observer 或上传预算。per-peer
-配额记在 `../ROADMAP.md` 里。
+observer 与上传的**槽位**有双层上限：全局一层、每个对端一层，这样一个对端吃不掉整张表，
+而带很多资源的网关仍放得下。两层上限都用 `5.03` 拒绝，都不淘汰已有条目。对端身份就是
+`peerIdentity`（与去重同一个），所以重连算新对端、配额从头计。体的字节与去重上限
+（`MaxBlockPayload`、`ClientConfig.MaxRequestSize`、`MaxExchanges` 等）仍只有全局一层：
+它们约束单个对象的内存，不按对端分。
 
 ## 可观测性
 
@@ -210,7 +215,8 @@ interim 的空 ACK（永远不会被当成最终响应）。non-confirmable 请�
 
 ## 已知差距
 
-- per-peer 的 observer 与上传配额（现在限额是全局的）、弱网故障注入矩阵 —— 都记在 `../ROADMAP.md`。
+- 弱网故障注入矩阵（丢包、重复、乱序、重连的组合）仍是 `../ROADMAP.md` 的条目；目前
+  这些路径由零散的单元测试覆盖。
 - Block2 没有表示快照（ETag/If-Match），变化的资源可能在序列中途被拼接。
 - `hook.ObserveExpired` 与 `hook.BlockExpired` 已定义，但没有代码路径发出它们。
 - `PERFORMANCE.md` 里的数字只是一台笔记本上的回环基线：不对真实网络或网关做承诺，每次请求的

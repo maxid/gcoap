@@ -94,7 +94,9 @@ go run ./examples/observe-client
 | --- | --- | --- |
 | `Config.BlockSize` | 1024 | 大响应切片使用的 Block2 大小 |
 | `Config.MaxObservers` | 256 | 全局 observer 上限，超出注册回 5.03 |
+| `Config.MaxObserversPerPeer` | 32 | 单个对端可持有的 observer 数，超出该对端注册回 5.03 |
 | `Config.MaxBlockUploads` | 128 | 进行中 Block1 上传上限，超出新上传回 5.03 |
+| `Config.MaxBlockUploadsPerPeer` | 16 | 单个对端进行中的 Block1 上传数，超出该对端新上传回 5.03 |
 | `Config.MaxBlockPayload` | 1 MiB | 单个上传总字节，也用于 Size1 预检（4.13） |
 | `Config.BlockIdleTimeout` | 60s | 空闲上传与完成响应的清理 |
 | `ClientConfig.MaxResponseSize` | 1 MiB | Block2 组装上限，超出 `ErrResponseTooLarge` |

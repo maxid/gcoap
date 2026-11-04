@@ -23,4 +23,4 @@
 - [x] 真实回环 UDP 上的 benchmark，以及写明数字、复现命令与机器的
       `docs/PERFORMANCE.md`
 - [ ] 弱网故障注入矩阵
-- [ ] 服务端 per-peer observer/upload 配额
+- [x] 服务端 per-peer observer/upload 配额

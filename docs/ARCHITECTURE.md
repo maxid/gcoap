@@ -242,13 +242,11 @@ are called outside the library's locks and must not block; a nil hook costs noth
 | Interop | `interop/` (own module) | both directions against `plgd-dev/go-coap/v3` over UDP and DTLS, including Block1, Block2 and observe |
 | Examples | `examples/` | the advertised API compiles and runs, and `-serve` keeps a server an external client can query |
 | Benchmarks | `benchmark_test.go` | the cost of a round trip, a Block2 download and a notification over loopback UDP; run manually, recorded in `PERFORMANCE.md` |
+| Fault matrix | `fault_matrix_test.go`, `fault_test.go`, `fault_client_test.go` | one subtest per fault × feature pair (duplicate, loss, reorder, delay, reset, reconnect against request, separate response, observe, Block1 and the client), each asserting the invariant that fault must not break |
 | CI | `.github/workflows/ci.yml` | `test` on three OSes, `race` and a short `fuzz` run on Linux |
 
 ## Known gaps
 
-- A weak-network fault-injection matrix (loss, duplication, reordering, reconnect
-  combinations) is still a `../ROADMAP.md` item; today those paths are covered by
-  individual unit tests.
 - Block2 has no representation snapshot (ETag/If-Match), so a changing resource can be
   spliced mid-sequence.
 - `hook.ObserveExpired` and `hook.BlockExpired` are defined but no code path emits them.

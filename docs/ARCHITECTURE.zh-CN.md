@@ -211,12 +211,11 @@ observer 与上传的**槽位**有双层上限：全局一层、每个对端一�
 | 互操作 | `interop/`（独立模块） | 对 `plgd-dev/go-coap/v3` 的双向互通，UDP 与 DTLS，含 Block1、Block2 与观察 |
 | 示例 | `examples/` | 文档里给出的 API 能编译能跑，`-serve` 留下一个外部客户端可查询的服务端 |
 | 基准 | `benchmark_test.go` | 回环 UDP 上一次往返、一次 Block2 下载、一条通知的代价；手工运行，数字记在 `PERFORMANCE.md` |
+| 故障矩阵 | `fault_matrix_test.go`、`fault_test.go`、`fault_client_test.go` | 每个「故障 × 特性」一个子测试（重复、丢包、乱序、迟到、重置、重连 对 request、separate response、observe、Block1 与客户端），各断言该故障不得破坏的不变量 |
 | CI | `.github/workflows/ci.yml` | 三个 OS 的 `test`，Linux 上的 `race` 与短时 `fuzz` |
 
 ## 已知差距
 
-- 弱网故障注入矩阵（丢包、重复、乱序、重连的组合）仍是 `../ROADMAP.md` 的条目；目前
-  这些路径由零散的单元测试覆盖。
 - Block2 没有表示快照（ETag/If-Match），变化的资源可能在序列中途被拼接。
 - `hook.ObserveExpired` 与 `hook.BlockExpired` 已定义，但没有代码路径发出它们。
 - `PERFORMANCE.md` 里的数字只是一台笔记本上的回环基线：不对真实网络或网关做承诺，每次请求的

@@ -14,6 +14,12 @@
 
 ### 新增
 
+- `fault_matrix_test.go`（连同 `fault_test.go` 与 `fault_client_test.go`）：弱网故障注入
+  矩阵。每个「故障 × 特性」一个子测试 —— 重复、丢包、乱序、迟到、重置、重连，分别打在
+  请求、separate response、observe 通知、Block1 上传与客户端侧。所有场景跑在手动时钟
+  （`fakeClock`）加真实回环 UDP 上，断言 handler 次数、逐字节一致的重传与最终状态，全程
+  不 sleep；表里缺哪条「故障 × 特性」一眼可见。
+
 - `Config.MaxObserversPerPeer`（32）与 `Config.MaxBlockUploadsPerPeer`（16）限制单个对端
   能占的 observer 与 Block1 上传槽位，一个对端不再能吃满全局表（`MaxObservers` 256、
   `MaxBlockUploads` 128）。超过 per-peer 上限的注册或上传回 `5.03 Service Unavailable`，

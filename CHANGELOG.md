@@ -13,6 +13,14 @@
 
 ### Added
 
+- `fault_matrix_test.go` (with `fault_test.go` and `fault_client_test.go`): a
+  weak-network fault-injection matrix. One subtest per fault × feature pair —
+  duplicate, loss, reorder, delay, reset and reconnect against requests, separate
+  responses, observe notifications, Block1 uploads and the client side. Every
+  scenario runs on the manual clock (`fakeClock`) against real loopback UDP, so it
+  asserts handler invocations, byte-identical retransmissions and end state without
+  sleeping; a fault without an entry would be a visible gap in the table.
+
 - `Config.MaxObserversPerPeer` (32) and `Config.MaxBlockUploadsPerPeer` (16) cap the
   observer and Block1 upload slots one peer may hold, so a single peer can no longer
   occupy the whole global table (`MaxObservers` 256, `MaxBlockUploads` 128). A

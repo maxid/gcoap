@@ -39,6 +39,7 @@ flowchart TD
 | `exchange.go` | RFC 7252 §4.8 parameters, the retransmission schedule and jitter, peer identity, the bounded deduplication cache |
 | `separate.go` | One inbound request end to end: `planRequest` (Block1 → route → observe), the ACK timer, `RespondLater`, the separate-response delivery, response finalization |
 | `outbound.go` | Registry for server-sent confirmable messages (notifications, separate responses) and the ACK/RST correlation by message id |
+| `server_request.go` | `Server.DoTo`: a request sent over an existing session, its token correlation (piggybacked or separate response), retransmission and Block2 assembly |
 | `observe.go` | The server-side observer table, `Notify`, the per-observer notification loop, session-close cleanup |
 | `block.go` | The bounded Block1 assembler, the completed-response cache, Block2 slicing |
 | `client.go` | `Dial`/`DialConfig`, `Do`, the reader goroutine, demultiplexing, Block2 assembly, client metrics |
@@ -93,7 +94,14 @@ sequenceDiagram
   `outMu` the outbound registry, `blockMu` the Block1 state, `dedupCache.mu` the cache.
   The order is: no lock is held while a handler runs or while `Metrics` is called.
 - **Stop.** It cancels in-flight handler contexts first, so a slow handler cannot delay
-  shutdown, then clears the dedup cache and the Block1 state and stops the listener.
+  shutdown, then clears the dedup cache, the Block1 state and the pending
+  server-initiated requests, and stops the listener.
+- **Server-initiated requests.** `Server.DoTo` sends over the session a peer already
+  has, so the datagram leaves from the server's own socket — the only source a
+  compliant peer accepts for a request — and matches the response by token
+  (piggybacked, separate, Block2 blocks). Block1 from the server side (a request
+  body above one block) is not implemented yet: such a call fails with
+  `ErrRequestTooLarge`.
 
 ## Client: one reader, token demultiplexing
 

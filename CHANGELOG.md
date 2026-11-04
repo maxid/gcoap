@@ -4,6 +4,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- `Server.DoTo`: a request sent over the session a peer already has with this server,
+  so the datagram leaves from the server's own socket — the source address a LwM2M
+  client (or any compliant peer) accepts a request from. Responses are correlated
+  by token, including an empty ACK followed by a separate response, and a block-wise
+  response is assembled; the request is retransmitted on the RFC 7252 schedule and a
+  peer's reset is reported as `ErrReset`. A request body above one block is refused
+  with `ErrRequestTooLarge` (Block1 from the server side is not implemented yet).
+
 ### Changed
 
 - **The metrics contract moved to `gcoap/hook`.** `Metrics`, `NoopMetrics` and every label

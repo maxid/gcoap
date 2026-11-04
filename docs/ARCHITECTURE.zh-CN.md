@@ -36,6 +36,7 @@ flowchart TD
 | `exchange.go` | RFC 7252 §4.8 参数、重传时间表与抖动、对端标识、有界去重缓存 |
 | `separate.go` | 一个入站请求的完整流程：`planRequest`（Block1 → 路由 → Observe）、ACK 定时器、`RespondLater`、separate response 投递、响应收尾 |
 | `outbound.go` | 服务端发出的 confirmable 报文（通知、separate response）登记表，按 message id 关联 ACK/RST |
+| `server_request.go` | `Server.DoTo`：向已有会话发起的请求，按 token 关联响应（piggyback 或 separate）、重传与 Block2 组装 |
 | `observe.go` | 服务端 observer 表、`Notify`、每个 observer 的通知循环、会话关闭清理 |
 | `block.go` | 有界 Block1 组装器、已完成响应缓存、Block2 切片 |
 | `client.go` | `Dial`/`DialConfig`、`Do`、读循环 goroutine、分用、Block2 组装、客户端指标 |
@@ -85,8 +86,12 @@ sequenceDiagram
   `obsMu` 管 observer 表**以及**每个 observer 的通知状态，`outMu` 管 outbound 登记表，
   `blockMu` 管 Block1 状态，`dedupCache.mu` 管去重缓存。约定是：跑 handler 时、调用 `Metrics`
   时都不持锁。
-- **Stop。** 先取消在途的 handler 上下文（慢 handler 拖不住关闭），再清空去重缓存和 Block1
-  状态，最后停监听器。
+- **Stop。** 先取消在途的 handler 上下文（慢 handler 拖不住关闭），再清空去重缓存、Block1
+  状态与在途的服务端发起请求，最后停监听器。
+- **服务端发起的请求。** `Server.DoTo` 走对端已有的会话，因此数据报从服务端自己的 socket
+  发出 —— 合规对端唯一接受的请求来源 —— 并按 token 关联响应（piggyback、separate、Block2
+  分块）。服务端侧的 Block1（请求体超过一个块）尚未实现：这类调用返回
+  `ErrRequestTooLarge`。
 
 ## 客户端：一个读 goroutine，按 token 分用
 

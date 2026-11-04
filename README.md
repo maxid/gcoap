@@ -48,6 +48,9 @@ A minimal **CoAP server state machine** for Go, built on the
   message id, so responses never cross between callers
 - `Metrics` hooks on the server and the client (nil by default) for exchanges,
   deduplication hits, retransmissions, observe events and block outcomes
+- `Server.DoTo` sends a request over a session the peer already has with the
+  server, from the server's own socket — the source address a peer accepts — and
+  correlates the response (piggybacked, separate, Block2-assembled) by token
 - 4.04 for unknown routes
 
 ## Example

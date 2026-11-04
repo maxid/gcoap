@@ -16,7 +16,8 @@
 - `Server.DoTo`：向对端已有的会话发请求，数据报从服务端自己的 socket 发出 —— 也就是
   LwM2M 客户端（或任何合规对端）愿意接受请求的来源地址。响应按 token 关联，覆盖「空 ACK
   后跟 separate response」与 Block2 分块组装；请求按 RFC 7252 时间表重传，对端 RST 以
-  `ErrReset` 返回。请求体超过一个块时返回 `ErrRequestTooLarge`（服务端侧 Block1 尚未实现）。
+  `ErrReset` 返回。请求体超过一个块时用 Block1 上传（块间等 2.31、对端给更小的 size
+  exponent 就降级、提前答复即结束）。
 
 ### 变更
 

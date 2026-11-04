@@ -100,9 +100,9 @@ sequenceDiagram
 - **Server-initiated requests.** `Server.DoTo` sends over the session a peer already
   has, so the datagram leaves from the server's own socket — the only source a
   compliant peer accepts for a request — and matches the response by token
-  (piggybacked, separate, Block2 blocks). Block1 from the server side (a request
-  body above one block) is not implemented yet: such a call fails with
-  `ErrRequestTooLarge`.
+  (piggybacked, separate, Block2 blocks). A request body above one block is
+  uploaded with Block1, the same rules as the client side: 2.31 between blocks, a
+  smaller size exponent downgrades the rest, and an early answer ends the upload.
 
 ## Client: one reader, token demultiplexing
 

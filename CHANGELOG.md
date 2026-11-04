@@ -18,8 +18,9 @@
   client (or any compliant peer) accepts a request from. Responses are correlated
   by token, including an empty ACK followed by a separate response, and a block-wise
   response is assembled; the request is retransmitted on the RFC 7252 schedule and a
-  peer's reset is reported as `ErrReset`. A request body above one block is refused
-  with `ErrRequestTooLarge` (Block1 from the server side is not implemented yet).
+  peer's reset is reported as `ErrReset`. A request body above one block is uploaded
+  with Block1 (2.31 between blocks, a smaller size exponent from the peer downgrades
+  the transfer, an early answer ends it).
 
 ### Changed
 

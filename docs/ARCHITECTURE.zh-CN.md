@@ -91,8 +91,8 @@ sequenceDiagram
   状态与在途的服务端发起请求，最后停监听器。
 - **服务端发起的请求。** `Server.DoTo` 走对端已有的会话，因此数据报从服务端自己的 socket
   发出 —— 合规对端唯一接受的请求来源 —— 并按 token 关联响应（piggyback、separate、Block2
-  分块）。服务端侧的 Block1（请求体超过一个块）尚未实现：这类调用返回
-  `ErrRequestTooLarge`。
+  分块）。请求体超过一个块时用 Block1 上传，规则与客户端侧一致：块间等 2.31、对端给更小的
+  size exponent 就降级、提前答复即结束上传。
 
 ## 客户端：一个读 goroutine，按 token 分用
 

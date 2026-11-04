@@ -81,15 +81,21 @@ fmt.Println(string(initial.Payload)) // registration response
 
 ## Runnable examples
 
-[`examples/server-client`](examples/server-client/main.go) runs a server and a
-client in one program: the server exposes `/hello`, the client sends a
-confirmable GET and prints the response, and both sides stop. The server
-listens on an ephemeral loopback port and prints the address it chose:
+Two programs under [`examples/`](examples/README.md) run without any external
+server. [`server-client`](examples/server-client/main.go) does a confirmable
+request/response round trip and shows the 4.04 an unknown route produces;
+[`observe-client`](examples/observe-client/main.go) registers a CoAP observation
+and prints the notifications that follow. Both start their own server on a loopback
+port and print the address they chose:
 
 ```sh
 go run ./examples/server-client
-go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
+go run ./examples/observe-client
 ```
+
+[`examples/README.md`](examples/README.md) explains what each one answers, how to
+run it and what it prints; `-serve` turns either into a server an external CoAP
+client can query.
 
 ## Limits and metrics
 

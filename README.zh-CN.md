@@ -69,14 +69,19 @@ fmt.Println(string(initial.Payload)) // registration response
 
 ## 可运行示例
 
-[`examples/server-client`](examples/server-client/main.go) 在同一程序内运行服务端与客户端：
-服务端暴露 `/hello`，客户端发送 confirmable GET 并打印响应，然后双方停止。
-服务端监听回环地址的临时端口并打印实际地址：
+[`examples/`](examples/README.md) 下有两个示例，都不需要外部服务器：
+[`server-client`](examples/server-client/main.go) 做一次 confirmable 请求/响应往返，
+并展示没人注册的路径会被答成 4.04；[`observe-client`](examples/observe-client/main.go)
+注册一个 CoAP 观察，打印随后到达的通知。两者都自己在回环地址上起服务端并打印实际地址：
 
 ```sh
 go run ./examples/server-client
-go run ./examples/server-client -addr 127.0.0.1:5683 -path /hello
+go run ./examples/observe-client
 ```
+
+每个示例回答什么问题、怎么跑、应该看到什么，见
+[`examples/README.md`](examples/README.zh-CN.md)；加 `-serve` 可以把任一示例变成一个
+外部 CoAP 客户端可以直接查询的服务端。
 
 ## 限额与指标
 

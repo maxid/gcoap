@@ -194,6 +194,9 @@ type Server struct {
 	observers map[string][]*observer
 	sessions  map[string]*gnety.Session
 
+	reqMu    sync.Mutex
+	requests map[string]*serverRequest // in-flight server-initiated requests, by token
+
 	blockMu sync.Mutex
 	uploads map[string]*upload
 	// completed caches the final response of a finished Block1 upload, so a
@@ -269,6 +272,7 @@ func New(cfg Config) (*Server, error) {
 	s := &Server{
 		routes: make(map[string]Handler), prefixes: make(map[string]Handler),
 		observers: make(map[string][]*observer), sessions: make(map[string]*gnety.Session),
+		requests:  make(map[string]*serverRequest),
 		uploads:   make(map[string]*upload),
 		completed: make(map[string]*completedUpload),
 		params:    params,
@@ -387,6 +391,9 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.hMu.Unlock()
 	cancel()
 	s.dedup.reset()
+	s.reqMu.Lock()
+	s.requests = make(map[string]*serverRequest)
+	s.reqMu.Unlock()
 	s.blockMu.Lock()
 	s.uploads = make(map[string]*upload)
 	s.completed = make(map[string]*completedUpload)
@@ -408,7 +415,29 @@ func (s *Server) onMessage(sess *gnety.Session, msg any) {
 	if !ok || sess == nil {
 		return
 	}
+	// An empty acknowledgement of a server-initiated request means the peer owns
+	// the exchange and answers separately; stop retransmitting and keep waiting.
+	if m.Type == coap.Acknowledgement && m.Code == coap.CodeEmpty && s.deliverServerAck(sess, m) {
+		return
+	}
+	// A response to a request this server sent — piggybacked on an
+	// acknowledgement or carried by a separate confirmable message — is
+	// correlated by token and never reaches the request path.
+	if m.Code.IsResponse() {
+		if s.deliverServerResponse(sess, m) {
+			if m.Type == coap.Confirmable {
+				// A separate response is acknowledged so the peer stops
+				// retransmitting it.
+				ack := coap.Message{Type: coap.Acknowledgement, Code: coap.CodeEmpty, MessageID: m.MessageID}
+				_ = sess.Send(ack)
+			}
+			return
+		}
+	}
 	if m.Type == coap.Acknowledgement || m.Type == coap.Reset {
+		if m.Type == coap.Reset && s.deliverServerReset(sess, m) {
+			return
+		}
 		s.dispatchControl(sess, m)
 		return
 	}

@@ -19,9 +19,13 @@ const MaxNotificationsInFlight = 1
 
 type observer struct {
 	sessionID string
-	token     string
-	path      string
-	seq       coap.Observe
+	// peer is the per-peer quota identity (peerIdentity) this observation is
+	// counted against; sessionID alone is not enough for transports where one
+	// session can change its identity.
+	peer  string
+	token string
+	path  string
+	seq   coap.Observe
 
 	// The notification state below is guarded by Server.obsMu. Exactly
 	// MaxNotificationsInFlight confirmable messages may be in flight; pending
@@ -43,8 +47,10 @@ func observeOption(value coap.Observe) coap.Option {
 }
 
 // addObserver registers one observation. It reports false when the server
-// already holds MaxObservers observations, so the caller can answer 5.03
-// instead of silently dropping the request.
+// already holds MaxObservers observations or the session's peer already holds
+// MaxObserversPerPeer, so the caller can answer 5.03 instead of silently dropping
+// the request. A registration that only refreshes an existing observation does
+// not consume quota.
 func (s *Server) addObserver(sess *gnety.Session, token []byte, path string) bool {
 	if sess == nil {
 		return false
@@ -63,8 +69,14 @@ func (s *Server) addObserver(sess *gnety.Session, token []byte, path string) boo
 		s.obsMu.Unlock()
 		return false
 	}
+	peer := peerIdentity(sess)
+	if s.maxObserversPeer > 0 && s.observerCountForPeerLocked(peer) >= s.maxObserversPeer {
+		s.obsMu.Unlock()
+		return false
+	}
 	s.observers[path] = append(s.observers[path], &observer{
 		sessionID: sess.ID,
+		peer:      peer,
 		token:     string(token),
 		path:      path,
 	})
@@ -81,6 +93,21 @@ func (s *Server) observerCountLocked() int {
 		total += len(list)
 	}
 	return total
+}
+
+// observerCountForPeerLocked returns the number of observers one peer holds. The
+// caller holds obsMu. The scan is bounded by MaxObservers, so it needs no
+// per-peer counter that could drift from the table it describes.
+func (s *Server) observerCountForPeerLocked(peer string) int {
+	count := 0
+	for _, list := range s.observers {
+		for _, o := range list {
+			if o.peer == peer {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func (s *Server) cancelObserver(sess *gnety.Session, token []byte, path string) {

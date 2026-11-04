@@ -114,10 +114,21 @@ type Config struct {
 	// Zero keeps DefaultMaxObservers. A registration beyond the limit is
 	// rejected with 5.03 Service Unavailable instead of evicting another one.
 	MaxObservers int
+	// MaxObserversPerPeer bounds the observers one peer may hold, so a single
+	// peer cannot occupy the whole table. Zero keeps
+	// DefaultMaxObserversPerPeer; a value at or above MaxObservers has no
+	// additional effect. A registration beyond it is rejected with 5.03 and the
+	// peer's existing observations keep working.
+	MaxObserversPerPeer int
 	// MaxBlockUploads bounds the Block1 uploads in progress at one time. Zero
 	// keeps DefaultMaxBlockUploads. A new upload beyond the limit is rejected
 	// with 5.03 Service Unavailable.
 	MaxBlockUploads int
+	// MaxBlockUploadsPerPeer bounds the Block1 uploads in progress for one peer.
+	// Zero keeps DefaultMaxBlockUploadsPerPeer; a value at or above
+	// MaxBlockUploads has no additional effect. A new upload beyond it is
+	// rejected with 5.03 and the peer's uploads already in progress continue.
+	MaxBlockUploadsPerPeer int
 	// MaxBlockPayload bounds the total body of one Block1 upload and rejects a
 	// larger Size1 before any state or memory is reserved. Zero keeps
 	// DefaultMaxBlockPayload.
@@ -133,9 +144,17 @@ type Config struct {
 const (
 	// DefaultMaxObservers is the observer limit when MaxObservers is zero.
 	DefaultMaxObservers = 256
+	// DefaultMaxObserversPerPeer is the per-peer observer limit when
+	// MaxObserversPerPeer is zero: one eighth of the global default, so a single
+	// peer cannot take the whole table while a gateway with many resources still
+	// fits.
+	DefaultMaxObserversPerPeer = 32
 	// DefaultMaxBlockUploads is the in-flight Block1 upload limit when
 	// MaxBlockUploads is zero.
 	DefaultMaxBlockUploads = 128
+	// DefaultMaxBlockUploadsPerPeer is the per-peer Block1 upload limit when
+	// MaxBlockUploadsPerPeer is zero: one eighth of the global default.
+	DefaultMaxBlockUploadsPerPeer = 16
 	// DefaultMaxBlockPayload is the per-upload body limit when MaxBlockPayload
 	// is zero.
 	DefaultMaxBlockPayload = 1 << 20
@@ -183,7 +202,9 @@ type Server struct {
 	completed map[string]*completedUpload
 
 	maxObservers     int
+	maxObserversPeer int
 	maxBlockUploads  int
+	maxUploadsPeer   int
 	maxBlockPayload  int
 	blockIdleTimeout time.Duration
 	blockSize        int
@@ -199,8 +220,14 @@ func New(cfg Config) (*Server, error) {
 	if cfg.MaxObservers < 0 {
 		return nil, errors.New("gcoap: MaxObservers must not be negative")
 	}
+	if cfg.MaxObserversPerPeer < 0 {
+		return nil, errors.New("gcoap: MaxObserversPerPeer must not be negative")
+	}
 	if cfg.MaxBlockUploads < 0 {
 		return nil, errors.New("gcoap: MaxBlockUploads must not be negative")
+	}
+	if cfg.MaxBlockUploadsPerPeer < 0 {
+		return nil, errors.New("gcoap: MaxBlockUploadsPerPeer must not be negative")
 	}
 	if cfg.MaxBlockPayload < 0 {
 		return nil, errors.New("gcoap: MaxBlockPayload must not be negative")
@@ -211,8 +238,14 @@ func New(cfg Config) (*Server, error) {
 	if cfg.MaxObservers == 0 {
 		cfg.MaxObservers = DefaultMaxObservers
 	}
+	if cfg.MaxObserversPerPeer == 0 {
+		cfg.MaxObserversPerPeer = DefaultMaxObserversPerPeer
+	}
 	if cfg.MaxBlockUploads == 0 {
 		cfg.MaxBlockUploads = DefaultMaxBlockUploads
+	}
+	if cfg.MaxBlockUploadsPerPeer == 0 {
+		cfg.MaxBlockUploadsPerPeer = DefaultMaxBlockUploadsPerPeer
 	}
 	if cfg.MaxBlockPayload == 0 {
 		cfg.MaxBlockPayload = DefaultMaxBlockPayload
@@ -249,7 +282,9 @@ func New(cfg Config) (*Server, error) {
 		outbound:                 make(map[outboundKey]*outboundExchange),
 
 		maxObservers:     cfg.MaxObservers,
+		maxObserversPeer: cfg.MaxObserversPerPeer,
 		maxBlockUploads:  cfg.MaxBlockUploads,
+		maxUploadsPeer:   cfg.MaxBlockUploadsPerPeer,
 		maxBlockPayload:  cfg.MaxBlockPayload,
 		blockIdleTimeout: cfg.BlockIdleTimeout,
 		blockSize:        cfg.BlockSize,

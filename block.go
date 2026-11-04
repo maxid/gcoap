@@ -61,7 +61,10 @@ func (e *block1Error) Unwrap() error { return e.err }
 // the method and the request URI, and the blocks arrive in order without gaps.
 type upload struct {
 	sessionID string
-	method    coap.Code
+	// peer is the per-peer quota identity (peerIdentity) this upload is counted
+	// against.
+	peer   string
+	method coap.Code
 	// path is the request URI with a canonical query string, so a block that
 	// changes the target is rejected instead of being appended.
 	path      string
@@ -102,6 +105,20 @@ func blockRequestPath(path string, query url.Values) string {
 	return path + "?" + query.Encode()
 }
 
+// uploadCountForPeerLocked returns the number of Block1 uploads in progress for
+// one peer. The caller holds blockMu. The scan is bounded by MaxBlockUploads, so
+// it needs no per-peer counter that could drift. Completed responses are not
+// counted: they are small, globally bounded, and no longer occupy a peer slot.
+func (s *Server) uploadCountForPeerLocked(peer string) int {
+	count := 0
+	for _, up := range s.uploads {
+		if up.peer == peer {
+			count++
+		}
+	}
+	return count
+}
+
 // processBlock1 handles one Block1 upload chunk. When the body is complete it
 // returns the full payload and the final block option. When the request must be
 // answered without running the handler it returns a replay response instead:
@@ -134,8 +151,16 @@ func (s *Server) processBlock1(sess *gnety.Session, m coap.Message, b coap.Block
 				err:  fmt.Errorf("gcoap: more than %d block-wise uploads in progress", s.maxBlockUploads),
 			}
 		}
+		peer := peerIdentity(sess)
+		if s.maxUploadsPeer > 0 && s.uploadCountForPeerLocked(peer) >= s.maxUploadsPeer {
+			return nil, coap.Block{}, nil, &block1Error{
+				code: coap.CodeServiceUnavailable,
+				err:  fmt.Errorf("gcoap: more than %d block-wise uploads in progress for one peer", s.maxUploadsPeer),
+			}
+		}
 		up = &upload{
 			sessionID: sessionID(sess),
+			peer:      peer,
 			method:    m.Code,
 			path:      path,
 			sizeExp:   b.SizeExp,

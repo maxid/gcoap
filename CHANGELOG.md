@@ -13,6 +13,27 @@
 
 ### Added
 
+- Two runnable examples, each a self-contained `main` that starts its own server on a
+  loopback port: `examples/server-client` shows a confirmable round trip, the 4.04 an
+  unknown route produces and a `-serve` mode an external CoAP client can query;
+  `examples/observe-client` registers an observation, prints the notifications that
+  follow and deregisters. Both print `[n/N]` steps and `[done]`, stop on Ctrl-C with
+  exit code 0, and list copyable commands in `-h`. `examples/README.md` and its Chinese
+  counterpart explain what each one answers.
+
+- `docs/ARCHITECTURE.md` and `docs/ARCHITECTURE.zh-CN.md`: the package map, the
+  goroutine and lock ownership of the server and the client, the exchange, observe and
+  block-wise state machines, the limits table and the metrics contract.
+
+- `FuzzDecodeMessage`: every datagram a peer sends goes through the decoder, so the fuzz
+  target pins three properties — no panic, no payload or option larger than the input,
+  and a stable `encode(decode(x))` — over seeds for CON/NON/ACK/RST, Observe, Block1 and
+  Block2.
+
+- The CI workflow gains the two gates the library was missing: `race` on Linux and a
+  10-second `fuzz` run of `FuzzDecodeMessage`. The `test` matrix keeps the three-OS
+  `test`/`vet` and the interoperability module.
+
 - `hook.MetricsFuncs`: implement the five metrics methods with optional function fields; a
   nil field is skipped.
 

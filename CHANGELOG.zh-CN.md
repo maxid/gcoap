@@ -14,6 +14,22 @@
 
 ### 新增
 
+- 两个可运行示例，每个都是自包含的 `main`，各自在回环端口上起服务端：
+  `examples/server-client` 演示一次 confirmable 往返、没人注册的路径得到的 4.04，以及可被
+  外部 CoAP 客户端查询的 `-serve` 模式；`examples/observe-client` 注册观察、打印随后到达的
+  通知再注销。两者都打印 `[n/N]` 步骤与 `[done]`，Ctrl-C 停止且退出码 0，`-h` 给出可直接
+  复制的命令。每个示例回答什么问题见 `examples/README.md` 与其中文版。
+
+- `docs/ARCHITECTURE.md` 与 `docs/ARCHITECTURE.zh-CN.md`：包地图、服务端与客户端的 goroutine
+  和锁归属、交换/观察/块传输状态机、限额表与指标契约。
+
+- `FuzzDecodeMessage`：对端发来的每个数据报都要过解码器，所以这个 fuzz 目标钉住三条性质
+  —— 不 panic、payload 与选项不超出输入规模、`encode(decode(x))` 稳定 —— 种子覆盖
+  CON/NON/ACK/RST、Observe、Block1 与 Block2。
+
+- CI 补上库缺的两道闸：Linux 上的 `race`，以及 `FuzzDecodeMessage` 的 10 秒 `fuzz`。
+  `test` 矩阵保持三个 OS 的 `test`/`vet` 与互操作模块。
+
 - `hook.MetricsFuncs`：用可选函数字段实现五个指标方法，nil 字段直接跳过。
 
 - Block1 上传状态有界：`Config.MaxBlockUploads`（128）与 `Config.MaxBlockPayload`（1 MiB，同时校验声明的 Size1）限制单个异常客户端能占用的状态与内存，`Config.BlockIdleTimeout`（60s）回收空闲上传与完成响应。改变 method/URI/块大小或乱序的块回 4.08；超限回 4.13；超过并发上限的新上传回 5.03。重复块重放 2.31 且不重复追加；带新 message id 的重复最后一块重放缓存的最终响应。

@@ -37,6 +37,7 @@ flowchart TD
 | `separate.go` | 一个入站请求的完整流程：`planRequest`（Block1 → 路由 → Observe）、ACK 定时器、`RespondLater`、separate response 投递、响应收尾 |
 | `outbound.go` | 服务端发出的 confirmable 报文（通知、separate response）登记表，按 message id 关联 ACK/RST |
 | `server_request.go` | `Server.DoTo`：向已有会话发起的请求，按 token 关联响应（piggyback 或 separate）、重传与 Block2 组装 |
+| `server_observe.go` | `Server.ObserveTo`：在已有会话上注册观察、注销与结束条件 |
 | `observe.go` | 服务端 observer 表、`Notify`、每个 observer 的通知循环、会话关闭清理 |
 | `block.go` | 有界 Block1 组装器、已完成响应缓存、Block2 切片 |
 | `client.go` | `Dial`/`DialConfig`、`Do`、读循环 goroutine、分用、Block2 组装、客户端指标 |

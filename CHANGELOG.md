@@ -6,6 +6,13 @@
 
 ### Added
 
+- `Server.ObserveTo`: registers an observation over the session a peer already has with
+  this server, so the request leaves from the server's own socket like `DoTo`. RFC 7641
+  section 3.2 makes the registration response the first notification, so it is returned;
+  later ones go to the callback, a final error notification ends the observation, and
+  `Cancel` sends the deregistration (Observe=1) before releasing it. The callback runs on
+  the transport read loop and must not block.
+
 - `Server.DoTo`: a request sent over the session a peer already has with this server,
   so the datagram leaves from the server's own socket — the source address a LwM2M
   client (or any compliant peer) accepts a request from. Responses are correlated

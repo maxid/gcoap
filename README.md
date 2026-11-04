@@ -50,7 +50,9 @@ A minimal **CoAP server state machine** for Go, built on the
   deduplication hits, retransmissions, observe events and block outcomes
 - `Server.DoTo` sends a request over a session the peer already has with the
   server, from the server's own socket — the source address a peer accepts — and
-  correlates the response (piggybacked, separate, Block2-assembled) by token
+  correlates the response (piggybacked, separate, Block2-assembled) by token;
+  `Server.ObserveTo` registers an observation the same way and delivers later
+  notifications to a callback
 - 4.04 for unknown routes
 
 ## Example

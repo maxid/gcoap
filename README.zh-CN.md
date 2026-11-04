@@ -36,7 +36,8 @@
   `MAX_RETRANSMIT`、可取消的处理器 context
 - 经 gnety 提供 DTLS 传输（服务端/客户端）
 - `Server.DoTo`：向对端已有的会话发请求，源地址就是服务端自己的 socket（对端唯一愿意接受
-  的地址），响应（piggyback、separate、Block2 组装）按 token 关联
+  的地址），响应（piggyback、separate、Block2 组装）按 token 关联；`Server.ObserveTo` 同样
+  在会话上注册观察，后续通知交给回调
 - 未知路由返回 4.04
 
 ## 示例

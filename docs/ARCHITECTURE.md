@@ -40,6 +40,7 @@ flowchart TD
 | `separate.go` | One inbound request end to end: `planRequest` (Block1 → route → observe), the ACK timer, `RespondLater`, the separate-response delivery, response finalization |
 | `outbound.go` | Registry for server-sent confirmable messages (notifications, separate responses) and the ACK/RST correlation by message id |
 | `server_request.go` | `Server.DoTo`: a request sent over an existing session, its token correlation (piggybacked or separate response), retransmission and Block2 assembly |
+| `server_observe.go` | `Server.ObserveTo`: an observation over an existing session, its deregistration and its end conditions |
 | `observe.go` | The server-side observer table, `Notify`, the per-observer notification loop, session-close cleanup |
 | `block.go` | The bounded Block1 assembler, the completed-response cache, Block2 slicing |
 | `client.go` | `Dial`/`DialConfig`, `Do`, the reader goroutine, demultiplexing, Block2 assembly, client metrics |

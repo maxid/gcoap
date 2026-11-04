@@ -22,3 +22,5 @@
 - [x] 独立互操作测试（plgd-dev/go-coap，UDP 与 DTLS 双向）
 - [ ] 弱网故障注入矩阵
 - [ ] 服务端 per-peer observer/upload 配额
+- [ ] 真实回环 UDP 上的 benchmark，以及写明数字、复现命令与机器的
+      `docs/PERFORMANCE.md`
